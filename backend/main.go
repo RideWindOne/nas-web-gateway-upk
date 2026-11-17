@@ -111,6 +111,9 @@ func main() {
 	mux.HandleFunc("/api/apps", store.AppsHandler())
 	mux.HandleFunc("/api/info", infoHandler)
 	mux.HandleFunc("/api/health", healthHandler)
+	// 被代理页面的注入脚本走外部 URL：页面里只有一个 <script src>，
+	// 不会有内联源码被页面模板当成正文渲染出来。
+	mux.HandleFunc("/api/inject.js", injectHandler)
 
 	mux.Handle("/", http.FileServer(http.Dir(*wwwDir)))
 
@@ -123,6 +126,18 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
+}
+
+func injectHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	p := r.URL.Query().Get("p")
+	o := r.URL.Query().Get("o")
+	if p == "" {
+		http.Error(w, "missing p", http.StatusBadRequest)
+		return
+	}
+	w.Write([]byte(injectJS(p, o, r.URL.Query().Get("ua") == "1")))
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {

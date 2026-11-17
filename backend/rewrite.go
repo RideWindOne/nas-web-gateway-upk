@@ -24,8 +24,6 @@ var (
 // 所以在页面最前面注入一段拦截：fetch / XHR / sendBeacon / WebSocket / EventSource
 // 以及运行时赋值的 src、href，统一把根绝对路径补成 "<前缀>/..."。
 const injectScript = `(function(){var P="__NWG_PREFIX__";var O="__NWG_ORIGIN__";var DUAMODE=__NWG_UA_MODE__;
-// 上游页面里跑的 JS 也会读 UA。绿联云这类后台一旦读到手机 UA 就直接摆出
-// “请使用 PC 浏览器”的提示页，所以在这里把 navigator 的 UA 也伪装成桌面 Chrome。
 var DUA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 try{var _def=function(o,k,v){try{Object.defineProperty(o,k,{get:function(){return v;},configurable:true});}catch(e){}};
 if(DUAMODE){
@@ -33,10 +31,6 @@ _def(Navigator.prototype,"userAgent",DUA);
 _def(Navigator.prototype,"appVersion",DUA.replace("Mozilla/",""));
 _def(Navigator.prototype,"platform","Win32");
 _def(Navigator.prototype,"vendor","Google Inc.");
-// maxTouchPoints / userAgentData 也必须一起伪装：绿联云桌面除了看 UA，
-// 还会读 navigator.maxTouchPoints（iPad 判定）和 UA-CH（userAgentData.mobile），
-// 手机 Chrome 上后者为 true，光改 userAgent 仍然会被判成手机而跳
-// browser-compatible/check-mobile.html 那张“请使用 PC 浏览器”的拦截页。
 _def(Navigator.prototype,"maxTouchPoints",0);
 try{var _uad={brands:[{brand:"Chromium",version:"131"},{brand:"Google Chrome",version:"131"},{brand:"Not_A Brand",version:"24"}],mobile:false,platform:"Windows"};
 _uad.getHighEntropyValues=function(){return Promise.resolve({architecture:"x86",bitness:"64",brands:_uad.brands,mobile:false,platform:"Windows",platformVersion:"10.0.0",uaFullVersion:"131.0.0.0",model:"",fullVersionList:_uad.brands});};
@@ -50,8 +44,6 @@ var ox=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u)
 if(navigator.sendBeacon){var ob=navigator.sendBeacon.bind(navigator);navigator.sendBeacon=function(u,d){return ob(fix(u),d);};}
 function wrapCtor(n){var O=window[n];if(!O)return;var W=function(u,o){try{if(typeof u==="string"){var a=u;if(n==="WebSocket"&&u.indexOf("ws")!==0)a=(location.protocol==="https:"?"wss://":"ws://")+location.host+(u.charAt(0)==="/"?u:"/"+u);var x=new URL(a,location.href);if(x.pathname.indexOf(P)!==0){x.pathname=P+(x.pathname.charAt(0)==="/"?x.pathname:"/"+x.pathname);}u=(n==="WebSocket")?x.toString():x.pathname+x.search;}}catch(e){}return new O(u,o);};W.prototype=O.prototype;["CONNECTING","OPEN","CLOSING","CLOSED"].forEach(function(k){if(O[k]!==undefined)W[k]=O[k];});window[n]=W;}
 wrapCtor("WebSocket");wrapCtor("EventSource");
-// 把 src/href 上的“上游 origin 绝对地址”（绿联云桌面用它开应用 iframe）和
-// 根绝对路径都改到代理前缀下，否则外网时这些子页面只能打到 172.30.x.x，白窗。
 function fixAttr(e,t){var v=e&&e.getAttribute&&e.getAttribute(t);if(!v)return;
 if(v.indexOf(O)===0){try{e.setAttribute(t,P+(v.slice(O.length)||"/"));}catch(x){}return;}
 if(v.charAt(0)!=="/"||v.charAt(1)==="/"||v.indexOf(P)===0)return;try{e.setAttribute(t,P+v);}catch(x){}}
@@ -94,6 +86,18 @@ func bindScript(prefix string) string {
 		`}catch(e){}})();`
 }
 
+// injectJS 生成注入脚本的完整源码，由 /api/inject.js 单独下发。
+func injectJS(prefix, origin string, desktop bool) string {
+	uaMode := "0"
+	if desktop {
+		uaMode = "1"
+	}
+	code := strings.Replace(injectScript, "__NWG_PREFIX__", prefix, 1)
+	code = strings.Replace(code, "__NWG_ORIGIN__", origin, 1)
+	code = strings.Replace(code, "__NWG_UA_MODE__", uaMode, 1)
+	return code + "\n" + bindScript(prefix)
+}
+
 func rewriteHTML(body []byte, prefix, baseDir, origin string, desktop bool) []byte {	body = reBase.ReplaceAll(body, nil)
 	body = reAttr.ReplaceAll(body, []byte("${1}=${2}"+prefix+"/${3}"))
 	body = reAttrRoot.ReplaceAll(body, []byte("${1}=${2}"+prefix+"/${3}"))
@@ -112,10 +116,12 @@ func rewriteHTML(body []byte, prefix, baseDir, origin string, desktop bool) []by
 	if desktop {
 		uaMode = "1"
 	}
+	// 只用外部脚本：内联 <script> 的源码在某些页面（Unraid 这类把
+	// 头部内容当文本渲染的模板）会被当成正文显示出来，页面上就会冒出一大段代码。
+	// 现在页面里只有一个 src，脚本体由 /api/inject.js 单独下发。
 	inj := []byte(`<base href="` + baseHref + `">` +
-		`<script>` + strings.Replace(strings.Replace(strings.Replace(injectScript,
-		"__NWG_PREFIX__", prefix, 1), "__NWG_ORIGIN__", origin, 1), "__NWG_UA_MODE__", uaMode, 1) + `</script>` +
-		`<script>` + bindScript(prefix) + `</script>`)
+		`<script src="/api/inject.js?p=` + url.QueryEscape(prefix) + `&ua=` + uaMode +
+		`&o=` + url.QueryEscape(origin) + `"></script>`)
 	if loc := reHead.FindIndex(body); loc != nil {
 		out := make([]byte, 0, len(body)+len(inj))
 		out = append(out, body[:loc[1]]...)

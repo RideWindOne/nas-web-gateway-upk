@@ -87,6 +87,8 @@ function isOwnPath(path) {
   if (path === '/boot.html') return true;
   if (path.indexOf('/css/') === 0 || path.indexOf('/js/') === 0) return true;
   if (path.indexOf('/api/') === 0) return true;
+  // 注入脚本由应用自己下发，不能当代理请求转发到上游
+  if (path.indexOf('/api/inject.js') === 0) return true;
   return false;
 }
 
