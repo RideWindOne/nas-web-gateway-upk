@@ -45,10 +45,9 @@ i18n:
   zh-CN:
     name: 内网浏览器
     description: >-
-      一个只做一件事的浏览器：输入 NAS 所在局域网里任意设备的 Web 地址（路由器、摄像头、软路由、另一台 NAS），
+      用手机通过 UGREENlink 在外网打开 NAS 所在局域网里的任意设备后台——路由、NAS、摄像头等。
       页面直接在你的浏览器里渲染，不起远端桌面、不传视频流。
-      支持多标签并排、地址历史与收藏、登录态在 NAS 上持久保存。
-      装在 NAS 上后用 UGREENlink 或 DDNS 访问都能打开，不需要在电脑或手机上装任何客户端。
+      支持多标签并排、地址历史与收藏、登录态在 NAS 上持久保存，不需要在电脑或手机上装任何客户端。
     author: Ride_Wind
     official: https://github.com/RideWindOne
     help: https://github.com/RideWindOne
@@ -58,7 +57,7 @@ i18n:
       A browser that does one thing: open any web UI on the LAN behind your NAS (router, camera, soft-router, another NAS).
       Pages render in your own browser — no remote desktop, no video stream relay.
       Multi-pane layout, address history and favorites, and login sessions persisted on the NAS.
-      Reachable over UGREENlink or DDNS once installed; no client to install on your computer or phone.
+      Open your router, NAS, cameras and other LAN devices from your phone over UGREENlink — no client to install.
     author: Ride_Wind
     official: https://github.com/RideWindOne
     help: https://github.com/RideWindOne

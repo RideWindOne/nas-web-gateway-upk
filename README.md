@@ -1,6 +1,6 @@
 # 内网浏览器（com.ridewind.naswebgateway）
 
-装在绿联 NAS 上的原生 UPK 应用。用手机通过 UGREENlink / DDNS 在外网打开 NAS 所在局域网里的设备后台——路由器 LuCI、飞牛 fnOS、绿联云桌面（9999）、摄像头等等。
+装在绿联 NAS 上的原生 UPK 应用。用手机通过 UGREENlink 在外网打开 NAS 所在局域网里的任意设备后台——路由、NAS、摄像头等。
 
 页面在自己浏览器里渲染，不起远端桌面、不转视频流；代理由 NAS 上的 Go 服务完成，地址改写、SPA 修复、登录态持久化都在这一层处理。
 
