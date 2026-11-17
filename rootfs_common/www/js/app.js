@@ -7,7 +7,7 @@
   if ('serviceWorker' in navigator &&
       (location.protocol === 'https:' || location.hostname === 'localhost' ||
        location.hostname === '127.0.0.1')) {
-    navigator.serviceWorker.register('/sw.js?v=0052', { scope: '/' }).then(function () {
+    navigator.serviceWorker.register('/sw.js?v=0053', { scope: '/' }).then(function () {
       // 告诉 SW：这个 client 是本应用主页面，它的 /、/css、/js 不能被当成上游页面转发
       navigator.serviceWorker.ready.then(function (r) {
         var w = navigator.serviceWorker.controller || (r && r.active);
