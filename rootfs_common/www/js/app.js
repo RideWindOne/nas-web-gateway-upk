@@ -7,7 +7,7 @@
   if ('serviceWorker' in navigator &&
       (location.protocol === 'https:' || location.hostname === 'localhost' ||
        location.hostname === '127.0.0.1')) {
-    navigator.serviceWorker.register('/sw.js?v=0056', { scope: '/' }).then(function () {
+    navigator.serviceWorker.register('/sw.js?v=0057', { scope: '/' }).then(function () {
       // 告诉 SW：这个 client 是本应用主页面，它的 /、/css、/js 不能被当成上游页面转发
       navigator.serviceWorker.ready.then(function (r) {
         var w = navigator.serviceWorker.controller || (r && r.active);
@@ -244,6 +244,13 @@
   // 那个 <iframe> 元素，事件就断在壳上——所以命中要做逐层下钻（deepHit），
   // 一直钻到最里层同源文档里的真实元素，再用那一层的 window 造事件。
   var vMouse = localStorage.getItem('nwg-vmouse') === '1';
+
+  function reloadActive() {
+    var cur = activePane && activePane.querySelector('.pane-frame');
+    if (cur && cur.src) cur.src = cur.src;
+  }
+  var reloadBtn = document.getElementById('reloadBtn');
+  if (reloadBtn) reloadBtn.addEventListener('click', reloadActive);
   var vLayer = null, vDot = null, vx = 0, vy = 0, vClampW = 0, vClampH = 0;
 
   function moveDot() {
@@ -692,13 +699,6 @@
       setTimeout(function () { fav.classList.remove('on'); }, 700);
     });
 
-    var reload = document.createElement('button');
-    reload.className = 'mini';
-    reload.type = 'button';
-    reload.textContent = '↻';
-    reload.title = '刷新';
-    reload.addEventListener('click', function () { frame.src = frame.src; });
-
     var close = document.createElement('button');
     close.className = 'mini';
     close.type = 'button';
@@ -716,7 +716,6 @@
     head.appendChild(title);
     if (badge) head.appendChild(badge);
     head.appendChild(fav);
-    head.appendChild(reload);
     head.appendChild(close);
     pane.appendChild(head);
 
@@ -1065,8 +1064,6 @@
   fsBtn.addEventListener('click', toggleFullscreen);
 
   var rotOn = localStorage.getItem('nwg-rot') === '1';
-  var rotBtn = document.getElementById('rotBtn');
-  if (rotBtn) rotBtn.addEventListener('click', function () { rotOn = !rotOn; applyRot(); });
   applyRot();
   applyRot();
 
@@ -1107,11 +1104,10 @@
     // 手机自己已经横过来了（或平板）就别再转一次，否则会转成“倒过来”的界面
     var need = rotOn && (window.innerHeight > window.innerWidth);
     document.body.classList.toggle('rot', need);
-    var btn = document.getElementById('rotBtn');
-    if (btn) {
-      btn.classList.toggle('on', rotOn);
-      btn.title = rotOn ? '退出横屏' : '横屏显示';
-    }
+    var lb = document.getElementById('rotLabel');
+    if (lb) lb.textContent = rotOn ? '退出横屏' : '横屏显示';
+    var mb = document.getElementById('menuRot');
+    if (mb) mb.classList.toggle('on', rotOn);
     try { localStorage.setItem('nwg-rot', rotOn ? '1' : '0'); } catch (e) {}
     setTimeout(function () { layoutVLayer(); syncZoomUI(); }, 0);
   }
@@ -1231,10 +1227,7 @@
     var act = btn.dataset.act;
     setMenu(false);
 
-    if (act === 'reload') {
-      var cur = activePane && activePane.querySelector('.pane-frame');
-      if (cur) cur.src = cur.src;
-    } else if (act === 'newApp') {
+    if (act === 'newApp') {
       openSheet(null);
     } else if (act === 'fav') {
       if (urlInput.value.trim()) addFavorite(normalize(urlInput.value), null);
@@ -1253,6 +1246,9 @@
       applyVMouse();
     } else if (act === 'toggleProxy') {
       toggleProxyActive();
+    } else if (act === 'rotate') {
+      rotOn = !rotOn;
+      applyRot();
     } else if (act === 'fit') {
       fitZoom();
     } else if (act === 'uaMode') {
