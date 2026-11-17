@@ -33,12 +33,13 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -build
 
 ## 安装
 
-```bash
-uginstall -upk /root/nwg/nwg-0050.upk
-systemctl reset-failed com.ridewind.naswebgateway
-systemctl start com.ridewind.naswebgateway
-curl -s http://127.0.0.1:10005/api/health     # {"ok":true}
+在 UGOS 应用中心添加三方商店源后直接安装（源地址）：
+
 ```
+https://raw.githubusercontent.com/RideWindOne/kmodloader-upk/main/apps.json
+```
+
+商店按 `upk_version` 判断更新，装好后在桌面或 App 里点开即用，端口 21010。
 
 数据落在 `/volume1/@appstore/com.ridewind.naswebgateway/shared/persist/`（`apps.json`、`cookies.json`、`history.json`），跨升级保留。
 
