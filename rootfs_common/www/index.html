@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>内网浏览器</title>
+<link rel="stylesheet" href="/css/style.css?v=0050">
+</head>
+<body>
+
+<header class="topbar">
+  <form class="addrbar" id="addrForm" autocomplete="off">
+    <div class="field">
+      <input id="urlInput" type="text" inputmode="url" autocapitalize="off" autocorrect="off"
+             spellcheck="false" placeholder="输入内网地址，如 172.30.2.2">
+      <button type="button" class="field-x hidden" id="clearInput" aria-label="清除">×</button>
+    </div>
+  </form>
+
+  <button class="menu-btn" type="button" id="hideBtn" aria-label="隐藏工具栏" title="隐藏地址栏与标签栏">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 4.2h10"/>
+      <path d="M8 13.4l4-3.6M8 13.4l-4-3.6"/>
+    </svg>
+  </button>
+
+</header>
+
+<button type="button" class="chrome-restore" id="chromeRestore" aria-label="显示工具栏" title="显示地址栏与标签栏">
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 2.6l-4 3.6M8 2.6l4 3.6"/>
+  </svg>
+</button>
+
+
+<div class="tabbar" id="tabbar">
+  <div class="tabs" id="tabs"></div>
+  <button type="button" class="tab-add" id="tabAdd" aria-label="新建标签" title="新建标签">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+      <path d="M8 3v10M3 8h10"/>
+    </svg>
+  </button>
+  <button class="menu-btn" type="button" id="rotBtn" aria-label="横屏" title="横屏显示">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
+        <rect x="1.4" y="4.6" width="13.2" height="6.8" rx="1.6"/>
+        <path d="M3.9 6.6v2.8"/>
+      </svg>
+    </button>
+  <button class="menu-btn" type="button" id="fsBtn" aria-label="全屏" title="全屏">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 2.4H2.4V6M10 2.4h3.6V6M13.6 10v3.6H10M2.4 10v3.6H6"/>
+      </svg>
+    </button>
+  <button class="menu-btn" type="button" id="menuBtn" aria-label="设置" aria-expanded="false">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+        <path d="M2 4h12M2 8h12M2 12h12"/>
+      </svg>
+    </button>
+  <nav class="menu hidden" id="menu">
+    <button type="button" data-act="reload">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M13.2 8a5.2 5.2 0 1 1-1.6-3.8"/>
+        <path d="M13.4 2.4v3.2h-3.2"/>
+      </svg>
+      刷新当前页
+    </button>
+    <button type="button" data-act="newApp">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+        <path d="M8 2.6v10.8M2.6 8h10.8"/>
+      </svg>
+      新建网页应用
+    </button>
+    <button type="button" data-act="fav">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 2l1.8 3.7 4 .6-2.9 2.8.7 4-3.6-1.9-3.6 1.9.7-4L5.2 6.3l4-.6z"/>
+      </svg>
+      收藏当前地址
+    </button>
+    <button type="button" data-act="favList">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 2h8v12l-4-2.8-4 2.8z"/>
+      </svg>
+      收藏夹
+    </button>
+    <button type="button" data-act="history">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="8" cy="8" r="6"/>
+        <path d="M8 4.6v3.6l2.4 1.4"/>
+      </svg>
+      浏览历史
+    </button>
+    <button type="button" data-act="showRecent" id="menuShowRecent">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2.2" y="3.4" width="11.6" height="9.2" rx="2"/>
+        <path d="M4.6 6.6h4M4.6 9.4h2.6"/>
+      </svg>
+      显示最近访问
+    </button>
+    <button type="button" data-act="uaMode" id="menuUAMode">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="1.8" y="3" width="12.4" height="8.2" rx="1.6"/>
+        <path d="M4.6 13.2h6.8"/>
+      </svg>
+      <span id="uaLabel">访问电脑版：关</span>
+    </button>
+    <button type="button" data-act="vmouse" id="menuVMouse">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2.4" y="2.4" width="11.2" height="11.2" rx="1.6"/>
+        <path d="M8 6.4v3.2M6.4 8h3.2"/>
+      </svg>
+      <span id="vMouseLabel">虚拟鼠标：关</span>
+    </button>
+    <button type="button" data-act="toggleProxy" id="menuProxy">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2.4 5.4h9.4l-2.2-2.2M13.6 10.6H4.2l2.2 2.2"/>
+      </svg>
+      <span id="proxyLabel">切换代理模式</span>
+    </button>
+    <button type="button" data-act="fit" id="menuFit">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2.4 6V3.2h3.2M10.4 3.2h3.2V6M13.6 10v2.8h-3.2M5.6 12.8H2.4V10"/>
+      </svg>
+      整屏显示（缩到装下桌面）
+    </button>
+    <div class="menu-zoom" role="group" aria-label="缩放">
+      <button type="button" class="mz-btn" id="menuZoomOut" aria-label="缩小">−</button>
+      <button type="button" class="mz-val" id="zoomLabel" aria-label="缩放复位 100%">100%</button>
+      <button type="button" class="mz-btn" id="menuZoomIn" aria-label="放大">＋</button>
+      <button type="button" class="mz-btn mz-reset" id="menuZoomReset" aria-label="还原" title="还原到 100%">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M13.2 8a5.2 5.2 0 1 1-1.6-3.8"/>
+          <path d="M13.4 2.9v3.2h-3.2"/>
+        </svg>
+      </button>
+    </div>
+    <div class="sep"></div>
+    <button type="button" data-act="layout">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="1.8" y="2.6" width="5.4" height="10.8"/>
+        <rect x="8.8" y="2.6" width="5.4" height="10.8"/>
+      </svg>
+      <span id="layoutLabel">切换为并排</span>
+    </button>
+    <div class="sep"></div>
+    <button type="button" data-act="closeAll" class="danger">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 4.6h10"/>
+        <path d="M6.2 4.6V3h3.6v1.6"/>
+        <path d="M4.6 4.6l.6 9h5.6l.6-9"/>
+      </svg>
+      关闭全部标签
+    </button>
+  </nav>
+</div>
+
+<div class="stage">
+  <main id="panes" class="panes"></main>
+
+  <div id="empty" class="empty">
+    <div class="empty-card">
+      <div class="apps-head">
+        <span>网页应用</span>
+        <button type="button" id="addApp" class="link-btn">＋ 新建</button>
+      </div>
+      <div class="apps" id="apps"></div>
+
+      <div id="emptyHint" class="empty-hint">
+        <div class="empty-title">打开局域网里的任意后台</div>
+        <p class="empty-sub">输入地址后回车即开。页面由你自己的浏览器渲染，数据经 NAS 转发，不是远端画面。</p>
+      </div>
+
+      <div class="recent-wrap" id="recentWrap">
+        <div class="recent-head">
+          <span>最近访问</span>
+          <button type="button" id="recentHide" class="recent-hide">隐藏</button>
+        </div>
+        <div class="recent" id="recent"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<aside id="drawer" class="drawer hidden">
+  <header class="drawer-head">
+    <span id="drawerTitle">历史</span>
+    <button id="drawerClose" class="icon-btn" aria-label="关闭">×</button>
+  </header>
+  <ul id="drawerList" class="drawer-list"></ul>
+  <footer class="drawer-foot">
+    <button id="clearBtn">清空记录</button>
+  </footer>
+</aside>
+
+<div id="sheet" class="sheet hidden">
+  <div class="sheet-top">
+    <button type="button" id="sheetCancel" class="sheet-tbtn">取消</button>
+    <span class="sheet-title" id="sheetTitle">新建网页应用</span>
+    <button type="button" id="sheetDel" class="sheet-tbtn danger hidden">删除</button>
+  </div>
+
+  <div class="sheet-body">
+    <p class="sheet-label">预览</p>
+    <div class="preview-row">
+      <span class="pv-icon" id="pvIcon">T</span>
+      <span class="pv-name" id="pvName">TP</span>
+    </div>
+
+    <p class="sheet-label">名称</p>
+    <input id="appName" class="sheet-input" placeholder="例如 飞牛 NAS" maxlength="20">
+
+    <p class="sheet-label">图标颜色</p>
+    <div class="colors" id="colors"></div>
+
+    <p class="sheet-label">备注</p>
+    <input id="appNote" class="sheet-input" placeholder="可选" maxlength="30">
+
+    <p class="sheet-label">地址</p>
+    <div class="addr-row">
+      <select id="appScheme" class="sheet-select">
+        <option value="http://">http://</option>
+        <option value="https://">https://</option>
+      </select>
+      <input id="appAddr" class="sheet-input grow" placeholder="192.168.10.250:5666" inputmode="url"
+             autocapitalize="off" autocorrect="off" spellcheck="false">
+    </div>
+
+    <label class="check">
+      <input type="checkbox" id="appProxy" checked>
+      <span>代理模式</span>
+    </label>
+    <p class="hint">开启后由 NAS 转发，外网（UGREENlink / DDNS）也能打开内网设备；关闭则浏览器直连，适合公网可访问的地址。</p>
+
+    <label class="check">
+      <input type="checkbox" id="appDesktop">
+      <span>访问电脑版</span>
+    </label>
+    <p class="hint">打开这个应用时按电脑浏览器（Windows Chrome）的 UA 请求，绿联云桌面、部分后台会按电脑版渲染；只对这一个应用生效。</p>
+
+    <button type="button" id="sheetOk" class="sheet-primary">确定</button>
+  </div>
+</div>
+
+<script src="/js/app.js?v=0050"></script>
+</body>
+</html>

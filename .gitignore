@@ -1,0 +1,10 @@
+# 构建产物与历史包（体积大，走 Release）
+build_dir/
+*.upk
+*.product.json
+
+# 各架构二进制，构建前交叉编译生成
+rootfs_arm64/app/app_serv
+rootfs_amd64/app/app_serv
+
+.DS_Store

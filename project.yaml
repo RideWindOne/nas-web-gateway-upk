@@ -1,0 +1,64 @@
+spec_version: "2.1"
+app_id: com.ridewind.naswebgateway
+version: 0.1.0
+support_arch:
+  - arm64
+  - amd64
+product_series:
+  - nasync
+supports:
+  - app
+  - pc
+is_docker_app: false
+
+# start_cmd 必须落在 app/ 下，不能放 bin/：UGOS 会把包里的 bin/ 安装成 0700 root，
+# 非特权的运行用户连目录都进不去（在 DH4300 Plus 上实测）。app/ 保留打包时的 0755。
+#
+# 这里直接指向二进制而不是 app/start.sh，原因是在 DH4300 Plus 上实测：
+# systemd unit 带 TemporaryFileSystem=/:ro，且只 BindReadOnlyPaths 了 /lib /sys /dev，
+# 服务沙箱内根本看不到 /bin/sh，任何 `#!/bin/sh` 脚本一执行就 203/EXEC。
+# app_serv 用 CGO_ENABLED=0 静态链接，不依赖 shell 也不依赖动态库；
+# www / data 路径分别由 UGAPP_INSTALL_DIR、UGAPP_DATA_DIR 推导（unit 里已注入），
+# 端口默认 21010，因此不需要任何传参。
+start_cmd: app/app_serv
+
+# 网关端口。Application Port 文档：请求只有匹配 proxy_path 才会转发到后端。
+# 实测（/etc/nginx/server.d/{appid}.conf）：proxy_path 被原样翻译成
+# `location ~ ^<proxy_path>/`，也就是说只有落在该前缀之下的请求才 proxy_pass
+# 到 /var/ugreen/gateway_app_proxy.sock，其余路径由网关从 /ugreen/www/{appid}
+# 静态发。写成 "/" 会生成 `^//`，什么都匹配不到（首页能开、/api 全 404）。
+# 所以静态页面（/、/css、/js、icon）交给网关直发，代理与数据接口统一挂 /api。
+port: 21010
+proxy_path: /api
+open_type: inner
+
+permissions:
+  - NETWORK.ACCESS_INTERNET
+
+allow_add_access_path: true
+tag_types:
+  - utility
+depend_fw_version: 1.13.0.0000
+depend_docker_version: ""
+
+i18n:
+  zh-CN:
+    name: 内网浏览器
+    description: >-
+      一个只做一件事的浏览器：输入 NAS 所在局域网里任意设备的 Web 地址（路由器、摄像头、软路由、另一台 NAS），
+      页面直接在你的浏览器里渲染，不起远端桌面、不传视频流。
+      支持多标签并排、地址历史与收藏、登录态在 NAS 上持久保存。
+      装在 NAS 上后用 UGREENlink 或 DDNS 访问都能打开，不需要在电脑或手机上装任何客户端。
+    author: Ride_Wind
+    official: https://github.com/RideWindOne
+    help: https://github.com/RideWindOne
+  en-US:
+    name: LAN Browser
+    description: >-
+      A browser that does one thing: open any web UI on the LAN behind your NAS (router, camera, soft-router, another NAS).
+      Pages render in your own browser — no remote desktop, no video stream relay.
+      Multi-pane layout, address history and favorites, and login sessions persisted on the NAS.
+      Reachable over UGREENlink or DDNS once installed; no client to install on your computer or phone.
+    author: Ride_Wind
+    official: https://github.com/RideWindOne
+    help: https://github.com/RideWindOne
