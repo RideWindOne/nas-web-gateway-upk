@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>内网浏览器</title>
-<link rel="stylesheet" href="/css/style.css?v=0057">
+<link rel="stylesheet" href="/css/style.css?v=0059">
 </head>
 <body>
 
@@ -33,7 +33,6 @@
   </svg>
 </button>
 
-
 <div class="tabbar" id="tabbar">
   <div class="tabs" id="tabs"></div>
   <button type="button" class="tab-add" id="tabAdd" aria-label="新建标签" title="新建标签">
@@ -58,6 +57,17 @@
       </svg>
     </button>
   <nav class="menu hidden" id="menu">
+    <div class="menu-zoom" role="group" aria-label="缩放">
+      <button type="button" class="mz-btn" id="menuZoomOut" aria-label="缩小">−</button>
+      <button type="button" class="mz-val" id="zoomLabel" aria-label="缩放复位 100%">100%</button>
+      <button type="button" class="mz-btn" id="menuZoomIn" aria-label="放大">＋</button>
+      <button type="button" class="mz-btn mz-reset" id="menuZoomReset" aria-label="还原" title="还原到 100%">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M13.2 8a5.2 5.2 0 1 1-1.6-3.8"/>
+          <path d="M13.4 2.9v3.2h-3.2"/>
+        </svg>
+      </button>
+    </div>
     <button type="button" data-act="newApp">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
         <path d="M8 2.6v10.8M2.6 8h10.8"/>
@@ -123,17 +133,7 @@
       </svg>
       <span id="rotLabel">横屏显示</span>
     </button>
-    <div class="menu-zoom" role="group" aria-label="缩放">
-      <button type="button" class="mz-btn" id="menuZoomOut" aria-label="缩小">−</button>
-      <button type="button" class="mz-val" id="zoomLabel" aria-label="缩放复位 100%">100%</button>
-      <button type="button" class="mz-btn" id="menuZoomIn" aria-label="放大">＋</button>
-      <button type="button" class="mz-btn mz-reset" id="menuZoomReset" aria-label="还原" title="还原到 100%">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M13.2 8a5.2 5.2 0 1 1-1.6-3.8"/>
-          <path d="M13.4 2.9v3.2h-3.2"/>
-        </svg>
-      </button>
-    </div>
+
     <div class="sep"></div>
     <button type="button" data-act="layout">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
@@ -241,6 +241,6 @@
   </div>
 </div>
 
-<script src="/js/app.js?v=0057"></script>
+<script src="/js/app.js?v=0059"></script>
 </body>
 </html>

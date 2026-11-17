@@ -901,19 +901,23 @@ body.home .panes { display: none; }
 .menu-zoom {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 2px 4px 4px;
-  padding: 2px 0;
+  justify-content: center;
+  gap: 2px;
+  margin: 4px 6px 6px;
+  padding: 2px 3px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
 }
 #menu .mz-btn {
   flex: 0 0 auto;
-  width: 30px; height: 30px;
+  width: 30px; height: 28px;
   gap: 0;
   text-align: center;
   padding: 0;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 7px;
-  background: var(--panel);
+  background: transparent;
   color: var(--text);
   font-size: 16px;
   line-height: 1;
@@ -921,10 +925,10 @@ body.home .panes { display: none; }
   display: grid;
   place-items: center;
 }
-#menu .mz-btn:active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+#menu .mz-btn:active { color: var(--accent); background: var(--accent-soft); }
 #menu .mz-val {
-  flex: 1 1 auto;
-  height: 30px;
+  flex: 0 0 56px;
+  width: 56px; height: 28px;
   padding: 0;
   border: 0;
   border-radius: 7px;
@@ -933,9 +937,9 @@ body.home .panes { display: none; }
   font: inherit;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
+  text-align: center;
   cursor: pointer;
 }
-#menu .mz-val { width: auto; height: 30px; text-align: center; justify-content: center; }
 #menu .mz-val:active { background: var(--hover); color: var(--text); }
 
 /* ---------- 横屏（把整个界面转 90°，页面拿到的是宽视口） ---------- */
@@ -949,7 +953,6 @@ body.rot {
   overflow: hidden;
 }
 
-/* 菜单缩放行里的“还原”按钮 */
 #menu .mz-reset svg { width: 14px; height: 14px; color: var(--muted); }
 #menu .mz-reset:active svg { color: var(--accent); }
 
