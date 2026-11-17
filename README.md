@@ -41,7 +41,7 @@ https://raw.githubusercontent.com/RideWindOne/kmodloader-upk/main/apps.json
 
 商店按 `upk_version` 判断更新，装好后在桌面或 App 里点开即用，端口 21010。
 
-数据落在 `/volume1/@appstore/com.ridewind.naswebgateway/shared/persist/`（`apps.json`、`cookies.json`、`history.json`），跨升级保留。
+数据落在 `/volume1/@appstore/com.ridewind.naswebgateway/shared/persist/`（`apps.json`、`cookies.json`、`history.json`），跨升级保留；首次启动若 `shared` 还是空的，会自动把旧版 `@appdata` 里的卡片/历史/登录态迁过来，升级不会看起来像“数据没了”。
 
 ## 关键设计
 

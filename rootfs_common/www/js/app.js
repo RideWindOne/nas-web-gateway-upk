@@ -7,7 +7,7 @@
   if ('serviceWorker' in navigator &&
       (location.protocol === 'https:' || location.hostname === 'localhost' ||
        location.hostname === '127.0.0.1')) {
-    navigator.serviceWorker.register('/sw.js?v=0051', { scope: '/' }).then(function () {
+    navigator.serviceWorker.register('/sw.js?v=0052', { scope: '/' }).then(function () {
       // 告诉 SW：这个 client 是本应用主页面，它的 /、/css、/js 不能被当成上游页面转发
       navigator.serviceWorker.ready.then(function (r) {
         var w = navigator.serviceWorker.controller || (r && r.active);
@@ -88,18 +88,58 @@
   // 都要按这张表把该应用的「访问电脑版」带过去——否则同一个地址从卡片打开
   // 是电脑版、从历史打开就退回手机 UA，绿联云这类后台会直接摆出
   // “请使用 PC 浏览器”的拦截页。
+  function bare(n) {
+    return String(n || '').replace(/[#?].*$/, '').replace(/\/+$/, '');
+  }
+
+  // 只比到 host:port（含协议），路径不参与：网页应用记录存的是入口地址，
+  // 而历史里存的是具体页面（/cgi-bin/luci/admin/status 这种）。
+  // 端口不同不合并——同一台机器不同端口往往是完全不同的服务。
+  function originOf(n) {
+    try {
+      var u = new URL(n);
+      return u.protocol + '//' + u.host;
+    } catch (e) {
+      return bare(n);
+    }
+  }
+
   function appFor(raw) {
-    var n = normalize(raw);
+    var n = bare(normalize(raw));
     if (!n) return null;
-    for (var i = 0; i < appsCache.length; i++) {
-      if (normalize(appsCache[i].url) === n) return appsCache[i];
+    var i;
+    for (i = 0; i < appsCache.length; i++) {
+      if (bare(normalize(appsCache[i].url)) === n) return appsCache[i];
+    }
+    var o = originOf(n);
+    for (i = 0; i < appsCache.length; i++) {
+      if (originOf(normalize(appsCache[i].url)) === o) return appsCache[i];
     }
     return null;
   }
 
+  // 记住“这个地址上次是不是按电脑版开的”，否则用户手动切过的选择，
+  // 下次从历史/地址栏再打开就丢了。
+  function deskPrefKey(n) {
+    return 'nwg.desktop.' + originOf(bare(n));
+  }
+
+  function rememberDesk(n, on) {
+    try {
+      if (on) localStorage.setItem(deskPrefKey(n), '1');
+      else localStorage.removeItem(deskPrefKey(n));
+    } catch (e) { /* 隐私模式下忽略 */ }
+  }
+
   function desktopFor(raw) {
-    var a = appFor(raw);
-    return !!(a && a.desktop);
+    var n = normalize(raw);
+    if (!n) return false;
+    var a = appFor(n);
+    if (a && a.desktop) return true;
+    try {
+      if (localStorage.getItem(deskPrefKey(n)) === '1') return true;
+    } catch (e) { /* 忽略 */ }
+    return false;
   }
 
   function normalize(raw) {
@@ -582,6 +622,7 @@
 
     // 没显式指定时按地址去反查应用配置，这样历史/地址栏打开也继承「访问电脑版」
     var desktop = opts.desktop === undefined ? desktopFor(url) : !!opts.desktop;
+    if (opts.desktop !== undefined) rememberDesk(url, desktop);
     var proxy = opts.proxy === undefined
       ? (localStorage.getItem('nwg-proxyDefault') !== '0')
       : !!opts.proxy;

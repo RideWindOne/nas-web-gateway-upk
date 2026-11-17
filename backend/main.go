@@ -73,6 +73,27 @@ func main() {
 		log.Fatalf("create data dir %s: %v", *dataDir, err)
 	}
 
+	// 一次性迁移：如果已经切到 shared/persist（跨升级保留），而里面还是空的，
+	// 就把旧版本留在 @appdata 里的卡片、历史、登录态搬过来，免得升级看上去“数据没了”。
+	if d := os.Getenv("UGAPP_DATA_DIR"); d != "" && d != *dataDir && dirWritable(*dataDir) {
+		for _, name := range []string{"apps.json", "cookies.json", "history.json", "fav.json"} {
+			src := filepath.Join(d, name)
+			dst := filepath.Join(*dataDir, name)
+			if _, err := os.Stat(dst); err == nil {
+				continue
+			}
+			b, err := os.ReadFile(src)
+			if err != nil {
+				continue
+			}
+			if err := os.WriteFile(dst, b, 0o644); err != nil {
+				log.Printf("migrate %s: %v", name, err)
+				continue
+			}
+			log.Printf("migrated %s from %s", name, d)
+		}
+	}
+
 	store := NewStore(*dataDir)
 	jar := NewCookieJar(filepath.Join(*dataDir, "cookies.json"))
 	proxy := NewProxy(jar, *insecure)
