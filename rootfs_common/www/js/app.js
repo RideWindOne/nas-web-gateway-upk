@@ -7,7 +7,7 @@
   if ('serviceWorker' in navigator &&
       (location.protocol === 'https:' || location.hostname === 'localhost' ||
        location.hostname === '127.0.0.1')) {
-    navigator.serviceWorker.register('/sw.js?v=0053', { scope: '/' }).then(function () {
+    navigator.serviceWorker.register('/sw.js?v=0054', { scope: '/' }).then(function () {
       // 告诉 SW：这个 client 是本应用主页面，它的 /、/css、/js 不能被当成上游页面转发
       navigator.serviceWorker.ready.then(function (r) {
         var w = navigator.serviceWorker.controller || (r && r.active);
@@ -748,6 +748,16 @@
       try {
         var loc = frame.contentWindow.location;
         var path = (loc.pathname || '/') + (loc.search || '');
+        // ?__nwg=<seg> 只是给 Service Worker 认路的标记。上游不可达时返回的是
+        // 我们自己的错误页（或非 HTML），注入的净化脚本不会跑，标记就会留在
+        // 地址栏上（http://1.2.3.4/?__nwg=aHR0… 这种）。这里统一兜底摘掉。
+        if (path.indexOf('__nwg=') >= 0) {
+          var clean = path.replace(/[?&]__nwg=[^&]*/, '').replace(/\?$/, '').replace(/\?&/, '?');
+          try {
+            frame.contentWindow.history.replaceState(null, '', clean + (loc.hash || ''));
+          } catch (e2) {}
+          path = clean;
+        }
         // 还在引导页（boot.html）等 Service Worker 接管时，地址栏不要跟着跳，
         // 否则会短暂显示 http://目标/boot.html?seg=...
         var isBoot = path.indexOf('boot.html') >= 0;

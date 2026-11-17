@@ -397,6 +397,6 @@ code{background:#0b0e12;padding:2px 6px;border-radius:4px;color:#7fb3ff;font-siz
 <p>请确认这台设备已开机，并且与 NAS 处在同一局域网。</p>
 <p><code>` + prefix + `</code></p>
 <p class="err">` + msg + `</p>
-</div></body></html>`)
+</div><script>(function(){try{var q=location.search;if(q.indexOf("__nwg=")<0)return;var s=q.replace(/[?&]__nwg=[^&]*/,"");history.replaceState(null,"",location.pathname+s+location.hash);}catch(e){}})();</script></body></html>`)
 	w.Write(buf.Bytes())
 }
