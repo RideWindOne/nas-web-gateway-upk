@@ -32,7 +32,17 @@ if(DUAMODE){
 _def(Navigator.prototype,"userAgent",DUA);
 _def(Navigator.prototype,"appVersion",DUA.replace("Mozilla/",""));
 _def(Navigator.prototype,"platform","Win32");
-_def(Navigator.prototype,"vendor","Google Inc.");}
+_def(Navigator.prototype,"vendor","Google Inc.");
+// maxTouchPoints / userAgentData 也必须一起伪装：绿联云桌面除了看 UA，
+// 还会读 navigator.maxTouchPoints（iPad 判定）和 UA-CH（userAgentData.mobile），
+// 手机 Chrome 上后者为 true，光改 userAgent 仍然会被判成手机而跳
+// browser-compatible/check-mobile.html 那张“请使用 PC 浏览器”的拦截页。
+_def(Navigator.prototype,"maxTouchPoints",0);
+try{var _uad={brands:[{brand:"Chromium",version:"131"},{brand:"Google Chrome",version:"131"},{brand:"Not_A Brand",version:"24"}],mobile:false,platform:"Windows"};
+_uad.getHighEntropyValues=function(){return Promise.resolve({architecture:"x86",bitness:"64",brands:_uad.brands,mobile:false,platform:"Windows",platformVersion:"10.0.0",uaFullVersion:"131.0.0.0",model:"",fullVersionList:_uad.brands});};
+_uad.toJSON=function(){return{brands:_uad.brands,mobile:false,platform:"Windows"};};
+_def(Navigator.prototype,"userAgentData",_uad);}catch(e){}
+}
 }catch(e){}
 function fix(u){if(typeof u!=="string"||!u.length)return u;if(u.indexOf(O)===0){u=u.slice(O.length)||"/";}if(u.charAt(0)!=="/"||u.charAt(1)==="/")return u;if(u===P||u.indexOf(P+"/")===0)return u;return P+u;}
 var of=window.fetch;if(of){window.fetch=function(i,o){try{if(typeof i==="string")i=fix(i);else if(i&&i.url){var n=fix(i.url);if(n!==i.url)i=new Request(n,i);}}catch(e){}return of.call(this,i,o);};}

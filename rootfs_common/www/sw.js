@@ -9,14 +9,55 @@
 // 取回时仍走后端原有的前缀代理，所以 HTML 照样被改写（base href、属性补前缀、
 // 注入脚本），资源和后续请求都自然落回前缀，不会再有裸根路径漏出去。
 //
-// clientId 对同一 iframe 的所有请求稳定，注入脚本会 postMessage 绑定；
-// 万一绑定没建立，就用 Referer 里的 /api/p/<seg> 兜底并顺手补绑。
+// clientId 对同一 iframe 的所有请求稳定，注入脚本会 postMessage 绑定。
+//
+// 关键：这份“哪个 client 属于哪个上游”的映射必须落盘。浏览器空闲 30 秒就会把
+// SW 停掉，内存里的 Map 跟着没了；而 iframe 的地址停在干净的 "/" 上，没有映射
+// 时它下一次导航要么落回本应用首页、要么被兜到别的标签的上游——表现出来就是
+// “开了第二个标签，回第一个标签内容串了”。所以映射双写 IndexedDB，SW 重启后
+// 先查内存、再查库、最后从 client 自己的 URL 里还原。
 
-const MAP = new Map(); // clientId -> seg
-let LAST = ''; // 最近一次绑定过的 seg，给没有 clientId 的新窗口兜底
+const DB = 'nwg-sw';
+const STORE = 'bind';
+const MAP = new Map(); // clientId -> seg（内存缓存，IndexedDB 的加速层）
 // 主页面自己的 clientId。主页面的资源和被代理页面的资源路径会撞车
 // （两边都有 /、/css、/js），必须先按 clientId 分清谁是谁。
 const APP = new Set();
+
+let dbPromise = null;
+function openDB() {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve) => {
+    try {
+      const req = indexedDB.open(DB, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch (e) { resolve(null); }
+  });
+  return dbPromise;
+}
+
+async function dbPut(key, seg) {
+  const db = await openDB();
+  if (!db) return;
+  try { db.transaction(STORE, 'readwrite').objectStore(STORE).put(seg, key); } catch (e) { /* 落盘失败不阻塞请求 */ }
+}
+
+async function dbGet(key) {
+  const db = await openDB();
+  if (!db) return null;
+  try {
+    return await new Promise((resolve) => {
+      const q = db.transaction(STORE, 'readonly').objectStore(STORE).get(key);
+      q.onsuccess = () => resolve(q.result || null);
+      q.onerror = () => resolve(null);
+    });
+  } catch (e) { return null; }
+}
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -33,7 +74,10 @@ self.addEventListener('message', (e) => {
   }
   if (d.__nwg === 'bind') {
     const seg = segOf(d.prefix);
-    if (seg) { MAP.set(e.source.id, seg); LAST = seg; }
+    if (seg) {
+      MAP.set(e.source.id, seg);
+      dbPut(e.source.id, seg);
+    }
   }
 });
 
@@ -66,9 +110,8 @@ function segOf(text) {
 function remember(seg, e) {
   const cid = e.clientId || '';
   const rid = e.resultingClientId || '';
-  if (cid) MAP.set(cid, seg);
-  if (rid) MAP.set(rid, seg);
-  LAST = seg;
+  if (cid) { MAP.set(cid, seg); dbPut(cid, seg); }
+  if (rid) { MAP.set(rid, seg); dbPut(rid, seg); }
 }
 
 self.addEventListener('fetch', (e) => {
@@ -83,7 +126,7 @@ self.addEventListener('fetch', (e) => {
   // 只接管同源请求；直连模式的 iframe 是跨源，本来就不需要转发
   if (u.origin !== self.location.origin) return;
 
-  const cid = e.clientId || e.resultingClientId || '';
+  const cid = e.clientId || '';
 
   // 0) 首帧导航把上游 seg 直接写在 ?__nwg=<seg> 上，优先级最高。
   //    iframe 的首次导航，e.clientId 常常是“发起这次导航的父文档”——
@@ -101,26 +144,40 @@ self.addEventListener('fetch', (e) => {
   // 1) 主页面自身：一律直连后端，绝不转发
   if (APP.has(cid)) return;
 
-  // 2) 已绑定上游的页面：连 "/"、/css、/js 这些撞车路径也要转发到上游
-  let seg = MAP.get(cid);
+  e.respondWith(handle(req, u, e, cid));
+});
+
+async function handle(req, u, e, cid) {
+  // 2) 已绑定上游：先查内存，再查落盘的映射（SW 被回收重启后内存是空的），
+  //    最后从 client 自己的 URL 里还原（干净的 "/?__nwg=<seg>" 就属于这种）
+  let seg = cid ? MAP.get(cid) : null;
+  if (!seg && cid) {
+    seg = await dbGet(cid);
+    if (seg) MAP.set(cid, seg);
+  }
+  if (!seg && cid) {
+    try {
+      const c = await self.clients.get(cid);
+      if (c) seg = segOf(c.url);
+    } catch (err) { /* 忽略 */ }
+  }
   if (seg) {
     remember(seg, e);
-    e.respondWith(forward(req, seg, u));
-    return;
+    return forward(req, seg, u);
   }
 
   // 3) 还没绑定的自有资源，直接放行（引导页 boot.html、sw.js 等）
-  if (isOwnPath(u.pathname)) return;
+  if (isOwnPath(u.pathname)) return fetch(req);
 
   seg = segOf(u.pathname + u.search) || segOf(req.referrer);
-  // 新窗口（window.open / target=_blank）没有 clientId 也没有 Referer，
-  // 用最近一次绑定过的上游兜底，否则它会以裸路径打到网关根变成 404。
-  if (!seg && req.mode === 'navigate') seg = LAST;
-  if (!seg) return; // 判断不出属于哪个应用，放行
-  remember(seg, e);
+  // 注意：这里不再用「最近一次绑定的上游」兜底。两个标签同时在用时，
+  // 那个全局兜底会把 A 的请求打到 B 的上游，正是“内容串了”的来源。
+  // 认不出来就原样放行，宁可 404 也不串到别的设备。
+  if (!seg) return fetch(req);
 
-  e.respondWith(forward(req, seg, u));
-});
+  remember(seg, e);
+  return forward(req, seg, u);
+}
 
 // 请求打到“干净路径”，内容从“带前缀路径”取回，两边靠这一段映射衔接
 async function forward(req, seg, u) {

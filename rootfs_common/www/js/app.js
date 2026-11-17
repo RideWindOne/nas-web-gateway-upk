@@ -7,7 +7,7 @@
   if ('serviceWorker' in navigator &&
       (location.protocol === 'https:' || location.hostname === 'localhost' ||
        location.hostname === '127.0.0.1')) {
-    navigator.serviceWorker.register('/sw.js?v=0050', { scope: '/' }).then(function () {
+    navigator.serviceWorker.register('/sw.js?v=0051', { scope: '/' }).then(function () {
       // 告诉 SW：这个 client 是本应用主页面，它的 /、/css、/js 不能被当成上游页面转发
       navigator.serviceWorker.ready.then(function (r) {
         var w = navigator.serviceWorker.controller || (r && r.active);
@@ -84,6 +84,24 @@
     return b64u((desktop ? 'd|' : '') + origin);
   }
 
+  // 一个地址对应的「网页应用」记录。地址栏输入、历史/最近访问点开时，
+  // 都要按这张表把该应用的「访问电脑版」带过去——否则同一个地址从卡片打开
+  // 是电脑版、从历史打开就退回手机 UA，绿联云这类后台会直接摆出
+  // “请使用 PC 浏览器”的拦截页。
+  function appFor(raw) {
+    var n = normalize(raw);
+    if (!n) return null;
+    for (var i = 0; i < appsCache.length; i++) {
+      if (normalize(appsCache[i].url) === n) return appsCache[i];
+    }
+    return null;
+  }
+
+  function desktopFor(raw) {
+    var a = appFor(raw);
+    return !!(a && a.desktop);
+  }
+
   function normalize(raw) {
     var s = (raw || '').trim();
     if (!s) return '';
@@ -158,6 +176,9 @@
     var tabs = panesList().length > 0;
     var showEmpty = !tabs || homeMode;
     emptyEl.classList.toggle('hidden', !showEmpty);
+    // 并排模式下所有 pane 都是可见的，回首页时必须把它们整块藏掉，
+    // 否则卡片会像浮层一样叠在页面之上（Chrome 桌面宽屏下特别明显）
+    document.body.classList.toggle('home', showEmpty);
     if (showEmpty) {
       activePane = null;
       urlInput.value = '';
@@ -559,7 +580,8 @@
     var url = normalize(rawURL);
     if (!url) return null;
 
-    var desktop = !!opts.desktop;
+    // 没显式指定时按地址去反查应用配置，这样历史/地址栏打开也继承「访问电脑版」
+    var desktop = opts.desktop === undefined ? desktopFor(url) : !!opts.desktop;
     var proxy = opts.proxy === undefined
       ? (localStorage.getItem('nwg-proxyDefault') !== '0')
       : !!opts.proxy;
@@ -743,7 +765,8 @@
   function openFromInput(raw) {
     var url = normalize(raw);
     if (!url) return;
-    var pane = addPane(url);
+    var app = appFor(url);
+    var pane = addPane(url, app ? { proxy: app.proxy !== false, name: app.name, desktop: !!app.desktop } : {});
     if (pane) activate(pane);
     urlInput.blur();
   }

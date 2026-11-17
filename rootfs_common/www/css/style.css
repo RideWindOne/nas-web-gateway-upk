@@ -388,6 +388,9 @@ body {
 
 /* ---------- 空状态 ---------- */
 
+/* 回首页时整块盖住舞台：pane 在并排模式下全都可见，只靠一层透明容器会变成“叠加” */
+body.home .panes { display: none; }
+
 .empty {
   position: absolute;
   inset: 0;
@@ -395,6 +398,8 @@ body {
   align-items: center;
   justify-content: center;
   padding: 20px 24px;
+  background: var(--bg);
+  overflow-y: auto;
 }
 .empty.hidden { display: none; }
 

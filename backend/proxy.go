@@ -25,6 +25,21 @@ const desktopUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 
 const mobileUA = "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 " +
 	"(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 
+// applyUA 统一改写出站请求的 UA 与 UA-CH（Client Hints）。
+// 只换 User-Agent 不够：手机 Chrome 会带 sec-ch-ua-mobile: ?1，上游站点读到
+// 这个就直接把请求判成手机，绿联云桌面因此仍会跳到 check-mobile 拦截页。
+func applyUA(h http.Header, desktop bool) {
+	if desktop {
+		h.Set("User-Agent", desktopUA)
+		h.Set("Sec-CH-UA-Mobile", "?0")
+		h.Set("Sec-CH-UA-Platform", `"Windows"`)
+		h.Del("Sec-CH-UA-Model")
+		h.Del("Sec-CH-UA-Platform-Version")
+		return
+	}
+	h.Set("User-Agent", mobileUA)
+}
+
 func uaMode(r *http.Request) bool {
 	if r.Header.Get("X-Nwg-Force-UA") == "desktop" {
 		return true
@@ -175,7 +190,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	req.Header.Del("Host")
 	req.Header.Del("Accept-Encoding")
 	req.Header.Set("Accept-Encoding", "gzip")
-	req.Header.Set("User-Agent", uaFor(r))
+	applyUA(req.Header, uaMode(r))
 	// 让上游以为这是一次直连，绕开固件对 Host 的校验
 	req.Host = host
 
@@ -263,7 +278,7 @@ func (p *Proxy) fetchRootHTML(r *http.Request, origin, host string) ([]byte, boo
 	req.Header.Del("Host")
 	req.Header.Del("Accept-Encoding")
 	req.Header.Set("Accept-Encoding", "gzip")
-	req.Header.Set("User-Agent", uaFor(r))
+	applyUA(req.Header, uaMode(r))
 	req.Host = host
 	if ck := p.jar.Get(host); ck != "" {
 		req.Header.Set("Cookie", ck)
@@ -339,11 +354,7 @@ func (p *Proxy) serveWS(w http.ResponseWriter, r *http.Request, target, host str
 			req.Header.Del("Ugreen-App-Proxy-Target")
 			req.Header.Del("Ugreen-App-Proxy-Type")
 			req.Header.Del("X-Nwg-Force-UA")
-			if forceDesk || uaModeFromHeader(origCookie) {
-				req.Header.Set("User-Agent", desktopUA)
-			} else {
-				req.Header.Set("User-Agent", mobileUA)
-			}
+			applyUA(req.Header, forceDesk || uaModeFromHeader(origCookie))
 			if ck := p.jar.Get(host); ck != "" {
 				req.Header.Set("Cookie", ck)
 			}
