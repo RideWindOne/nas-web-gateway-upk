@@ -7,7 +7,7 @@
   if ('serviceWorker' in navigator &&
       (location.protocol === 'https:' || location.hostname === 'localhost' ||
        location.hostname === '127.0.0.1')) {
-    navigator.serviceWorker.register('/sw.js?v=0059', { scope: '/' }).then(function () {
+    navigator.serviceWorker.register('/sw.js?v=0076', { scope: '/' }).then(function () {
       // 告诉 SW：这个 client 是本应用主页面，它的 /、/css、/js 不能被当成上游页面转发
       navigator.serviceWorker.ready.then(function (r) {
         var w = navigator.serviceWorker.controller || (r && r.active);
@@ -251,6 +251,64 @@
   }
   var reloadBtn = document.getElementById('reloadBtn');
   if (reloadBtn) reloadBtn.addEventListener('click', reloadActive);
+
+  // ---------- 前进 / 后退 ----------
+  // 每个标签维护自己的访问栈：iframe 内同源页面换地址时，把新地址压栈；
+  // 后退/前进就是把 iframe 的 src 指回栈里那一条（代理模式下仍然经 /api/p/ 走）。
+  function navState(pane) {
+    if (!pane) return null;
+    if (!pane.__nav) {
+      var first = pane.dataset.url || '';
+      pane.__nav = { list: first ? [first] : [], idx: first ? 0 : -1 };
+    }
+    return pane.__nav;
+  }
+
+  function navRecord(pane, url) {
+    var st = navState(pane);
+    if (!st || !url || url === 'about:blank') return;
+    if (st.list[st.idx] === url) return;
+    st.list = st.list.slice(0, st.idx + 1);
+    st.list.push(url);
+    st.idx = st.list.length - 1;
+    syncNavBtns();
+  }
+
+  function navigateTo(pane, url) {
+    var frame = pane.querySelector('.pane-frame');
+    if (!frame || !url) return;
+    var desktop = pane.dataset.desktop === '1';
+    if (pane.dataset.proxy === '1' && swReady() === false) {
+      // SW 没接管时仍可用代理直链
+    }
+    frame.src = pane.dataset.proxy === '1' ? proxySrc(url, desktop) : url;
+  }
+
+  function goBack() {
+    var st = navState(activePane);
+    if (!st || st.idx <= 0) return;
+    st.idx--;
+    navigateTo(activePane, st.list[st.idx]);
+    syncNavBtns();
+  }
+
+  function goForward() {
+    var st = navState(activePane);
+    if (!st || st.idx >= st.list.length - 1) return;
+    st.idx++;
+    navigateTo(activePane, st.list[st.idx]);
+    syncNavBtns();
+  }
+
+  function syncNavBtns() {
+    var st = navState(activePane);
+    var back = document.getElementById('menuBack');
+    var fwd = document.getElementById('menuForward');
+    if (back) back.disabled = !st || st.idx <= 0;
+    if (fwd) fwd.disabled = !st || st.idx >= st.list.length - 1;
+  }
+
+  syncNavBtns();
   var vLayer = null, vDot = null, vx = 0, vy = 0, vClampW = 0, vClampH = 0;
 
   function moveDot() {
@@ -572,6 +630,7 @@
     if (vMouse) ensureVLayer(pane); else hideVLayer();
     syncZoomUI();
     renderTabs();
+    if (typeof syncNavBtns === 'function') syncNavBtns();
     var xy = tabsEl.querySelector('.tab.on');
     if (xy && xy.scrollIntoView) xy.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
@@ -768,6 +827,7 @@
           var full = pane.dataset.origin + path;
           if (pane.dataset.url !== full) {
             pane.dataset.url = full;
+            navRecord(pane, full);
             if (pane === activePane && document.activeElement !== urlInput) {
               urlInput.value = full;
               syncClearBtn();
@@ -1192,7 +1252,44 @@
   function setMenu(open) {
     menu.classList.toggle('hidden', !open);
     menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (!open) return;
+    // 菜单高度按“当前可见区域”现算：横屏后 body 的高度是物理宽度，
+    // 固定的 vh/vw 上限都会算错，结果菜单底部被屏幕边缘切掉。
+    try {
+      // 用布局尺寸而不是 getBoundingClientRect：横屏时 body 被旋转过，
+      // 包围盒高度是“物理高度”，算出来会把可用空间少算一大截。
+      var bodyH = document.body.offsetHeight;
+      var topInBody = 0, el = menu;
+      while (el && el !== document.body) { topInBody += el.offsetTop; el = el.offsetParent; }
+      menu.style.maxHeight = Math.max(160, Math.round(bodyH - topInBody - 10)) + 'px';
+    } catch (e) { /* 用 CSS 里的兜底值 */ }
   }
+
+  // 绿联云等 App 的 WebView 里，overflow 容器的原生惯性滚动会被外层手势吃掉，
+  // 这里给菜单补一套手动拖动滚动：竖屏按手指纵向，横屏（页面旋转 90°）按横向。
+  (function menuTouchScroll() {
+    var sx = 0, sy = 0, st = 0, active = false;
+    menu.addEventListener('touchstart', function (e) {
+      if (e.touches.length !== 1) return;
+      var t = e.touches[0];
+      sx = t.clientX; sy = t.clientY; st = menu.scrollTop; active = true;
+    }, { passive: true });
+    menu.addEventListener('touchmove', function (e) {
+      if (!active || e.touches.length !== 1) return;
+      var t = e.touches[0];
+      var d = document.body.classList.contains('rot')
+        ? (sx - t.clientX) * -1   // 横屏时页面被旋转 90°，手指方向要反号
+        : (sy - t.clientY);
+      if (Math.abs(d) > 4) {
+        menu.scrollTop = st + d;
+        if (e.cancelable) e.preventDefault();
+        e.stopPropagation();
+      }
+    }, { passive: false });
+    ['touchend', 'touchcancel'].forEach(function (ev) {
+      menu.addEventListener(ev, function () { active = false; }, { passive: true });
+    });
+  })();
 
   function toggleMenu() {
     syncProxyLabel();
@@ -1227,7 +1324,11 @@
     var act = btn.dataset.act;
     setMenu(false);
 
-    if (act === 'newApp') {
+    if (act === 'back') {
+      goBack();
+    } else if (act === 'forward') {
+      goForward();
+    } else if (act === 'newApp') {
       openSheet(null);
     } else if (act === 'fav') {
       if (urlInput.value.trim()) addFavorite(normalize(urlInput.value), null);

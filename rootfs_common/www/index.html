@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>内网浏览器</title>
-<link rel="stylesheet" href="/css/style.css?v=0059">
+<link rel="stylesheet" href="/css/style.css?v=0076">
 </head>
 <body>
 
@@ -58,14 +58,45 @@
     </button>
   <nav class="menu hidden" id="menu">
     <div class="menu-zoom" role="group" aria-label="缩放">
-      <button type="button" class="mz-btn" id="menuZoomOut" aria-label="缩小">−</button>
-      <button type="button" class="mz-val" id="zoomLabel" aria-label="缩放复位 100%">100%</button>
-      <button type="button" class="mz-btn" id="menuZoomIn" aria-label="放大">＋</button>
-      <button type="button" class="mz-btn mz-reset" id="menuZoomReset" aria-label="还原" title="还原到 100%">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M13.2 8a5.2 5.2 0 1 1-1.6-3.8"/>
-          <path d="M13.4 2.9v3.2h-3.2"/>
+      <button type="button" class="mz-btn" id="menuZoomOut" aria-label="缩小">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <path d="M3.5 8h9"/>
         </svg>
+      </button>
+      <button type="button" class="mz-val" id="zoomLabel" aria-label="缩放复位 100%">100%</button>
+      <button type="button" class="mz-btn" id="menuZoomIn" aria-label="放大">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <path d="M3.5 8h9M8 3.5v9"/>
+        </svg>
+      </button>
+      <span class="mz-sep" aria-hidden="true"></span>
+      <button type="button" class="mz-btn mz-reset" id="menuZoomReset" aria-label="还原到 100%" title="还原到 100%">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 2.6H2.6V6M10 2.6h3.4V6M13.4 10v3.4H10M2.6 10v3.4H6"/>
+        </svg>
+      </button>
+    </div>
+    <button type="button" data-act="rotate" id="menuRot">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
+        <rect x="1.6" y="2.4" width="8.4" height="11.2" rx="1.6"/>
+        <rect x="10.2" y="5.6" width="4.4" height="7.4" rx="1.2"/>
+      </svg>
+      <span id="rotLabel">横屏显示</span>
+    </button>
+    <div class="menu-nav">
+      <button type="button" class="mnav-btn" data-act="back" id="menuBack" disabled>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6.4 3.4L2.8 7l3.6 3.6"/>
+          <path d="M2.8 7h6.4a3.4 3.4 0 0 1 0 6.8H5.6"/>
+        </svg>
+        <span>后退</span>
+      </button>
+      <button type="button" class="mnav-btn" data-act="forward" id="menuForward" disabled>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9.6 3.4L13.2 7l-3.6 3.6"/>
+          <path d="M13.2 7H6.8a3.4 3.4 0 0 0 0 6.8h3.6"/>
+        </svg>
+        <span>前进</span>
       </button>
     </div>
     <button type="button" data-act="newApp">
@@ -125,13 +156,6 @@
         <path d="M2.4 6V3.2h3.2M10.4 3.2h3.2V6M13.6 10v2.8h-3.2M5.6 12.8H2.4V10"/>
       </svg>
       整屏显示（缩到装下桌面）
-    </button>
-    <button type="button" data-act="rotate" id="menuRot">
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
-        <rect x="1.6" y="2.4" width="8.4" height="11.2" rx="1.6"/>
-        <rect x="10.2" y="5.6" width="4.4" height="7.4" rx="1.2"/>
-      </svg>
-      <span id="rotLabel">横屏显示</span>
     </button>
 
     <div class="sep"></div>
@@ -241,6 +265,6 @@
   </div>
 </div>
 
-<script src="/js/app.js?v=0059"></script>
+<script src="/js/app.js?v=0076"></script>
 </body>
 </html>

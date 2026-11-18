@@ -92,7 +92,14 @@ func injectJS(prefix, origin string, desktop bool) string {
 	if desktop {
 		uaMode = "1"
 	}
-	code := strings.Replace(injectScript, "__NWG_PREFIX__", prefix, 1)
+	// 首帧导航为了避免绑定竞态，会把上游 seg 挂在 ?__nwg= 上。这个标记只给
+	// Service Worker 看：上游页面自己的 JS 一旦读到它（ws-scrcpy 这类会把
+	// location 打进日志、甚至拿它拼 WebSocket 地址），看着就像串了地址。
+	// 所以这里在注入脚本最前面、同步地把它摘掉，不等 SW 接管。
+	stripNwg := `(function(){try{var q=location.search;if(q.indexOf("__nwg=")<0)return;` +
+		`var s=q.replace(/[?&]__nwg=[^&]*/,"").replace(/^&/,"?");` +
+		`history.replaceState(null,"",location.pathname+s+location.hash);}catch(e){}})();` + "\n"
+	code := stripNwg + strings.Replace(injectScript, "__NWG_PREFIX__", prefix, 1)
 	code = strings.Replace(code, "__NWG_ORIGIN__", origin, 1)
 	code = strings.Replace(code, "__NWG_UA_MODE__", uaMode, 1)
 	return code + "\n" + bindScript(prefix)
