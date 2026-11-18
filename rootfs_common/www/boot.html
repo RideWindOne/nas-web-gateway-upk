@@ -47,10 +47,7 @@
   function enter() {
     try {
       var c = navigator.serviceWorker.controller;
-      // 没有 controller 就说明这次跳转不会被 SW 接管，走前缀路径，
-      // 别把 ?__nwg= 留在地址上（上游会读到）。
-      if (!c) { location.replace(P + path.slice(1)); return; }
-      c.postMessage({ __nwg: 'bind', prefix: P });
+      if (c) c.postMessage({ __nwg: 'bind', prefix: P });
     } catch (e) { /* 忽略 */ }
     // 把 seg 直接带在 URL 上：SW 解析到 ?__nwg=<seg> 就会转发，
     // 不依赖"先 postMessage 再导航"的先后顺序。

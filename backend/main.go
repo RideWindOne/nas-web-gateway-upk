@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -114,6 +115,17 @@ func main() {
 	// 被代理页面的注入脚本走外部 URL：页面里只有一个 <script src>，
 	// 不会有内联源码被页面模板当成正文渲染出来。
 	mux.HandleFunc("/api/inject.js", injectHandler)
+	// 客户端报错回传：被代理的页面里出错时，前端把 message+stack POST 回来，
+	// 日志里就能看到，避免只能靠“白屏”猜。
+	mux.HandleFunc("/api/clientlog", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		b, _ := io.ReadAll(io.LimitReader(r.Body, 8192))
+		log.Printf("[nwg] client: %s", string(b))
+		w.WriteHeader(http.StatusNoContent)
+	})
 
 	mux.Handle("/", http.FileServer(http.Dir(*wwwDir)))
 
@@ -137,7 +149,7 @@ func injectHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing p", http.StatusBadRequest)
 		return
 	}
-	w.Write([]byte(injectJS(p, o, r.URL.Query().Get("ua") == "1")))
+	w.Write([]byte(injectJS(p, o, r.URL.Query().Get("d"), r.URL.Query().Get("ua") == "1")))
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {

@@ -36,6 +36,7 @@ permissions:
   - NETWORK.ACCESS_INTERNET
 
 allow_add_access_path: true
+support_migration: true
 tag_types:
   - utility
 depend_fw_version: 1.13.0.0000

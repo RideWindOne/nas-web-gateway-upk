@@ -87,8 +87,6 @@ function isOwnPath(path) {
   if (path === '/boot.html') return true;
   if (path.indexOf('/css/') === 0 || path.indexOf('/js/') === 0) return true;
   if (path.indexOf('/api/') === 0) return true;
-  // 注入脚本由应用自己下发，不能当代理请求转发到上游
-  if (path.indexOf('/api/inject.js') === 0) return true;
   return false;
 }
 
@@ -150,12 +148,6 @@ self.addEventListener('fetch', (e) => {
 });
 
 async function handle(req, u, e, cid) {
-  // 1.5) 应用自己的资源永远不转发。绑定了上游的标签（iframe）也会请求
-  //      /api/inject.js，如果先按 seg 转发，就落到上游的 404 上、返回 text/html，
-  //      浏览器拒绝执行 → 注入整段失效（飞牛的 WebSocket 因此没被改写，
-  //      连到网关根 /websocket 上，一眼看上去就是“连接已断开”）。
-  if (isOwnPath(u.pathname)) return fetch(req);
-
   // 2) 已绑定上游：先查内存，再查落盘的映射（SW 被回收重启后内存是空的），
   //    最后从 client 自己的 URL 里还原（干净的 "/?__nwg=<seg>" 就属于这种）
   let seg = cid ? MAP.get(cid) : null;

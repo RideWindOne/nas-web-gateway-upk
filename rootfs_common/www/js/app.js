@@ -7,7 +7,7 @@
   if ('serviceWorker' in navigator &&
       (location.protocol === 'https:' || location.hostname === 'localhost' ||
        location.hostname === '127.0.0.1')) {
-    navigator.serviceWorker.register('/sw.js?v=0079', { scope: '/' }).then(function () {
+    navigator.serviceWorker.register('/sw.js?v=0052', { scope: '/' }).then(function () {
       // 告诉 SW：这个 client 是本应用主页面，它的 /、/css、/js 不能被当成上游页面转发
       navigator.serviceWorker.ready.then(function (r) {
         var w = navigator.serviceWorker.controller || (r && r.active);
@@ -695,7 +695,11 @@
     var u0 = new URL(url);
     // 公网站点（百度这类）经代理会被逐条改写 URL，脚本里动态拼接的地址极容易出错；
     // 它本来就是公网可达的，直连更稳。例外：https 外壳里打 http 目标只能走代理。
-    var lanTarget = isLanHost(u0.hostname);
+    // 目标就是本应用自己所在的域名（手机端经 UGREENlink 时就是 app-xxxx.ugapp.link）
+    // 时不能按“公网站点”改成直连：那个域名只有 /api/* 会被转到本应用，其它路径
+    // 是 relay 自己的根，直连过去就是白屏。这类目标必须留在代理上。
+    var selfHost = (u0.host === location.host);
+    var lanTarget = isLanHost(u0.hostname) || selfHost;
     var mixedBlocked = location.protocol === 'https:' && u0.protocol === 'http:';
     var notice = '';
     if (proxy && !lanTarget && !mixedBlocked) {
@@ -838,7 +842,7 @@
       } catch (e) {}
       try {
         var w = frame.contentWindow;
-        if (w && !w.__nwgOpenHooked) {
+        if (w && !w.__nwgOpenHooked && !w.__nwgFix) {
           w.__nwgOpenHooked = true;
           w.open = function (u) {
             try {
@@ -1378,12 +1382,50 @@
       layout = layout === 'split' ? 'single' : 'split';
       localStorage.setItem('nwg.layout', layout);
       applyLayout();
+    } else if (act === 'clearCache') {
+      clearCacheAndReload();
     } else if (act === 'closeAll') {
       panesEl.innerHTML = '';
       activePane = null;
       syncEmpty();
     }
   });
+
+  // 清除缓存：Service Worker 的脚本和 Cache Storage 会长期驻留，
+  // 升级后不换掉就会出现"装了新版但页面还是旧的"。这里把缓存、SW 注册、
+  // SW 的归属库（IndexedDB nwg-sw）一起清掉，然后重载页面。
+  // 注意不动 localStorage —— 收藏、历史和布局设置都在里面。
+  function clearCacheAndReload() {
+    var done = false;
+    function reload() {
+      if (done) return;
+      done = true;
+      location.reload();
+    }
+    try {
+      var tasks = [];
+      if (window.caches && caches.keys) {
+        tasks.push(caches.keys().then(function (keys) {
+          return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+        }));
+      }
+      if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+        tasks.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+          return Promise.all(rs.map(function (r) { return r.unregister(); }));
+        }));
+      }
+      tasks.push(new Promise(function (res) {
+        try {
+          var req = indexedDB.deleteDatabase('nwg-sw');
+          req.onsuccess = req.onerror = req.onblocked = function () { res(); };
+        } catch (e) { res(); }
+      }));
+      Promise.all(tasks).then(reload).catch(reload);
+      setTimeout(reload, 1200);
+    } catch (e) {
+      reload();
+    }
+  }
 
   // ---------- 抽屉 ----------
   function openDrawer(mode) {
@@ -1534,19 +1576,62 @@
 
   // ---------- 被代理页面要求开新标签 ----------
   // from 是发起请求的那个标签（飞牛桌面），保留它，另开一个新标签承载目标页。
+  // 从代理路径反推它的上游 origin：/api/p/<seg>/xxx → seg → origin。
+  // 相册/文件管理这类应用是上游页面自己 window.open 出来的，它给过来的可能只是
+  // 一条代理路径（甚至不带 abs），没有这一步就只能拿本应用的地址当基准去拼，
+  // 拼出来是 http://<NAS>:21010/p 这种「指向自己」的错误地址 → “无法连接目标设备”。
+  function originFromProxyPath(p) {
+    try {
+      var m = String(p || '').match(/^\/api\/p\/([A-Za-z0-9_-]+)/);
+      if (!m) return null;
+      var s = m[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (s.length % 4) s += '=';
+      var raw = decodeURIComponent(escape(atob(s)));
+      if (raw.indexOf('d|') === 0) raw = raw.slice(2);
+      var o = new URL(raw);
+      var rest = String(p).slice(m[0].length) || '/';
+      if (rest.charAt(0) !== '/') rest = '/' + rest;
+      return { origin: o.origin, rest: rest };
+    } catch (e) {
+      return null;
+    }
+  }
+
   function openInNewTab(relURL, from) {
     var base = from && from.dataset.url;
     var proxy = from ? from.dataset.proxy !== '0' : true;
     var full = relURL;
+    // 基准地址若指向本应用自己的域名（手机端是 app-xxxx.ugapp.link 这种 relay），
+    // 它不能当上游基准用：拿它拼出来的 /p 会落到 relay 的根上。这时改用这个标签
+    // 记着的 seg 还原真正的上游 origin。
     try {
-      var u = new URL(relURL, base || location.href);
-      if (base) {
-        // 上游页面发来的是它自己的路径，要拼回上游的 origin
-        var bu = new URL(base);
-        full = bu.origin + u.pathname + u.search + u.hash;
-      } else {
-        full = u.href;
+      if (base && new URL(base).host === location.host && from && from.dataset.seg) {
+        var bySeg = originFromProxyPath('/api/p/' + from.dataset.seg + '/');
+        if (bySeg) base = bySeg.origin;
       }
+    } catch (e0) { /* 忽略 */ }
+    // 传进来的本身就是代理路径时，先按 seg 还原上游 origin，别拿本应用地址当基准。
+    var viaProxy = originFromProxyPath(relURL);
+    if (viaProxy) {
+      return addPane(viaProxy.origin + viaProxy.rest, { proxy: proxy });
+    }
+    if (!base || base.indexOf('/api/p/') === 0) {
+      // 没有可用的上游基准就别拼了：宁可不开，也不要拼出一个指向自己的地址。
+      var loose = String(relURL);
+      if (!/^https?:\/\//i.test(loose)) return null;
+      return addPane(loose, { proxy: proxy });
+    }
+    try {
+      // 上游页面发来的是它自己的路径，要拼回上游的 origin；pathname 自带前导 /，
+      // 拼接时不会再出现 “21010p” 这种缺斜杠的地址。
+      var u = new URL(relURL, base);
+      var bu = new URL(base);
+      // 目标带了完整 origin 且和父标签不同（同主机换端口、或干脆换主机）时，
+      // 不能被父标签的 origin 覆盖：按它自己的 origin 开，代理的 seg 会自动换成
+      // 那个 origin 的编码，端口不同也能正常转过去。
+      var ownOrigin = /^https?:\/\//i.test(String(relURL)) && u.origin !== bu.origin;
+      full = (ownOrigin ? u.origin : bu.origin) +
+             (u.pathname.charAt(0) === '/' ? u.pathname : '/' + u.pathname) + u.search + u.hash;
     } catch (err) {
       return null;
     }
@@ -1560,6 +1645,25 @@
     if (e.origin !== location.origin) return;
     var d = e.data || {};
     if (d.__nwg !== 'open' || typeof d.url !== 'string') return;
+    // 先认代理路径（相册这类上游应用自己开窗的情况）：按 seg 还原上游真实地址，
+    // 这条最可靠——手机上注入脚本算出来的 abs 常常退回成本应用自己的域名，
+    // 用它开标签就会打到 relay 的根上变白屏。
+    var viaProxy = originFromProxyPath(d.url) || originFromProxyPath(d.abs);
+    if (viaProxy) {
+      addPane(viaProxy.origin + viaProxy.rest, { proxy: true, desktop: false });
+      return;
+    }
+    // 第三方应用开在自己独立的地址/端口上时，上游页面传来的是它自己的绝对地址。
+    // 端口不同（同主机的另一个 origin）也按它自己的 origin 开，addPane 会用那个
+    // origin 重新算 seg，代理链路于是指向正确的那台/那个端口。
+    var abs = (typeof d.abs === 'string' && /^https?:\/\//i.test(d.abs)) ? d.abs : null;
+    var asUrl = (typeof d.url === 'string' && /^https?:\/\//i.test(d.url)) ? d.url : null;
+    var pick = asUrl || abs;
+    if (pick) {
+      try { if (new URL(pick).host === location.host) { pick = d.url; } } catch (e1) {}
+      if (pick && /^https?:\/\//i.test(pick)) { addPane(pick, { proxy: true, desktop: false }); return; }
+    }
+    if (abs) { addPane(abs, { proxy: true, desktop: false }); return; }
     openInNewTab(d.url, activePane);
   });
 
