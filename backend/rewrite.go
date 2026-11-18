@@ -40,6 +40,9 @@ _def(Navigator.prototype,"userAgentData",_uad);}catch(e){}
 }catch(e){}
 function fix(u){if(typeof u!=="string"||!u.length)return u;if(u.indexOf(O)===0){u=u.slice(O.length)||"/";}if(u.charAt(0)!=="/"||u.charAt(1)==="/")return u;if(u===P||u.indexOf(P+"/")===0)return u;return P+u;}
 var of=window.fetch;if(of){window.fetch=function(i,o){try{if(typeof i==="string")i=fix(i);else if(i&&i.url){var n=fix(i.url);if(n!==i.url)i=new Request(n,i);}}catch(e){}return of.call(this,i,o);};}
+// 桌面/SPA 会用 history.pushState 把地址改回根绝对路径（如 /desktop/?os=ugospro），
+// 一旦绕开 /api/p/ 前缀，后续所有请求就打不到设备上，表现就是白屏、一直加载。
+(function(){try{["pushState","replaceState"].forEach(function(m){var o=history[m];if(!o)return;history[m]=function(st,t,u){try{if(typeof u==="string"){u=fix(u);}}catch(e){}return o.call(history,st,t,u);};});}catch(e){}})();
 var ox=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){try{arguments[1]=fix(u);}catch(e){}return ox.apply(this,arguments);};
 if(navigator.sendBeacon){var ob=navigator.sendBeacon.bind(navigator);navigator.sendBeacon=function(u,d){return ob(fix(u),d);};}
 function wrapCtor(n){var O=window[n];if(!O)return;var W=function(u,o){try{if(typeof u==="string"){var a=u;if(n==="WebSocket"&&u.indexOf("ws")!==0)a=(location.protocol==="https:"?"wss://":"ws://")+location.host+(u.charAt(0)==="/"?u:"/"+u);var x=new URL(a,location.href);if(x.pathname.indexOf(P)!==0){x.pathname=P+(x.pathname.charAt(0)==="/"?x.pathname:"/"+x.pathname);}u=(n==="WebSocket")?x.toString():x.pathname+x.search;}}catch(e){}return new O(u,o);};W.prototype=O.prototype;["CONNECTING","OPEN","CLOSING","CLOSED"].forEach(function(k){if(O[k]!==undefined)W[k]=O[k];});window[n]=W;}

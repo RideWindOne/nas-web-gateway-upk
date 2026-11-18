@@ -7,7 +7,7 @@
   if ('serviceWorker' in navigator &&
       (location.protocol === 'https:' || location.hostname === 'localhost' ||
        location.hostname === '127.0.0.1')) {
-    navigator.serviceWorker.register('/sw.js?v=0076', { scope: '/' }).then(function () {
+    navigator.serviceWorker.register('/sw.js?v=0079', { scope: '/' }).then(function () {
       // 告诉 SW：这个 client 是本应用主页面，它的 /、/css、/js 不能被当成上游页面转发
       navigator.serviceWorker.ready.then(function (r) {
         var w = navigator.serviceWorker.controller || (r && r.active);
@@ -859,12 +859,27 @@
       try {
         t = (frame.contentDocument && frame.contentDocument.title) || '';
       } catch (e) { t = ''; }
-      if (t && t.trim()) {
+      if (t && t.trim() && !PLACEHOLDER_TITLES[t.trim()]) {
         pane.dataset.name = t.trim().slice(0, 60);
         title.textContent = pane.dataset.name;
         renderTabs();
+      } else if (!pane.dataset.name) {
+        // 桌面这类 SPA 首帧标题就是占位，先退回主机名，别让标签一直挂着“加载中”
+        var hn = '';
+        try { var u2 = new URL(pane.dataset.url); hn = u2.host; } catch (e) { hn = ''; }
+        if (hn) { pane.dataset.name = hn; title.textContent = hn; renderTabs(); }
       }
       recordHistory(pane.dataset.url, pane.dataset.name);
+      setTimeout(function () {
+        try {
+          var t2 = (frame.contentDocument && frame.contentDocument.title) || '';
+          if (t2 && t2.trim() && !PLACEHOLDER_TITLES[t2.trim()]) {
+            pane.dataset.name = t2.trim().slice(0, 60);
+            title.textContent = pane.dataset.name;
+            renderTabs();
+          }
+        } catch (e) {}
+      }, 6000);
     });
 
     if (opts.focus !== false) activate(pane);
