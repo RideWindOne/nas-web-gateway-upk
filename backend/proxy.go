@@ -459,7 +459,9 @@ func (p *Proxy) fetchRootHTML(r *http.Request, origin, host string) ([]byte, boo
 	req.Header.Set("Accept-Encoding", "gzip")
 	applyUA(req.Header, uaMode(r))
 	req.Host = host
-	fixForwardSiteHeaders(req, u, host)
+	if ou, errU := url.Parse(origin); errU == nil {
+		fixForwardSiteHeaders(req, ou, host)
+	}
 	if ck := p.jar.Get(host); ck != "" {
 		req.Header.Set("Cookie", ck)
 	}
