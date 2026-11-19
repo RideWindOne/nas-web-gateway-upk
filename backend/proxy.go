@@ -339,7 +339,13 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			log.Printf("[nwg] dbg %s%s hdr=%v body=%s", host, rest, dbgHeaders(r), prev)
 		}
-		body = rewriteLanURLs(body, marker)
+		// 只有绿联云桌面（9999）和飞牛 fnOS（5666）的 JSON 才做地址改写：
+		// 这两套的接口会把“要交给浏览器打开的地址”直接放在 JSON 里。
+		// 其它上游（Lucky、QWRT、UNRAID…）的 JSON 是业务数据，改写了会污染界面显示，
+		// 一旦在网关里保存回填，还会把配置写坏（Lucky 的默认规则目标就是这么被带偏的）。
+		if shouldRewriteLanJSON(host, rest) {
+			body = rewriteLanURLs(body, marker)
+		}
 		w.Header().Del("Content-Encoding")
 		w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 		w.WriteHeader(resp.StatusCode)
@@ -350,6 +356,23 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 其它非 HTML：原始字节流透传，一个字节都不改
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
+}
+
+// shouldRewriteLanJSON 判断这条 JSON 响应是否允许做 LAN 地址改写。
+// 只放行绿联云桌面与飞牛 fnOS 的接口，其余上游原样透传。
+func shouldRewriteLanJSON(host, rest string) bool {
+	port := ""
+	if h, p, err := net.SplitHostPort(host); err == nil && h != "" {
+		port = p
+	} else if strings.HasPrefix(host, "[") {
+		port = ""
+	}
+	switch port {
+	case "9999", "5666":
+		return true
+	}
+	// 绿联桌面的接口路径固定带 /ugreen/ 前缀
+	return strings.HasPrefix(rest, "/ugreen/")
 }
 
 // lanOriginRe 匹配局域网绝对地址里的 scheme+host[:port] 部分。
