@@ -6,7 +6,11 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"io"
+	"log"
+	"net"
 	"net/url"
+	"sync"
+	"time"
 	"regexp"
 	"strings"
 )
@@ -371,7 +375,7 @@ func localizeRelayHost(u *url.URL) *url.URL {
 	}
 	nu := *u
 	nu.Scheme = "http"
-	nu.Host = "127.0.0.1:" + port
+	nu.Host = relayLocalHost(port)
 	return &nu
 }
 
@@ -459,7 +463,73 @@ func localizeRelayText(body []byte) []byte {
 	if !bytes.Contains(body, []byte("ugapp.link")) {
 		return body
 	}
-	body = ugappRelayEscRe.ReplaceAll(body, []byte(`http:\/\/127.0.0.1:$1`))
-	body = ugappRelayRe.ReplaceAll(body, []byte("http://127.0.0.1:$1"))
+	body = ugappRelayEscRe.ReplaceAllFunc(body, func(m []byte) []byte {
+		sm := ugappRelayEscRe.FindSubmatch(m)
+		if len(sm) < 2 {
+			return m
+		}
+		return []byte(`http:\/\/` + relayLocalHost(string(sm[1])))
+	})
+	body = ugappRelayRe.ReplaceAllFunc(body, func(m []byte) []byte {
+		sm := ugappRelayRe.FindSubmatch(m)
+		if len(sm) < 2 {
+			return m
+		}
+		return []byte("http://" + relayLocalHost(string(sm[1])))
+	})
 	return body
+}
+
+// ---------- 远程域名端口的本机落点 ----------
+// 代理跑在 NAS 上，所以 127.0.0.1:<端口> 就是“NAS 自己连自己”。绝大多数服务监听
+// 0.0.0.0 / * / 127.0.0.1，走 loopback 都没问题；但如果有服务只绑在某个具体网卡
+// （比如只绑 172.30.2.231），loopback 就连不上。这里先探测 loopback，失败改试本机
+// 主网卡 IPv4，最后才退回 loopback。
+
+var (
+	relayHostMu    sync.Mutex
+	relayHostCache = map[string]string{}
+	lanIPOnce      sync.Once
+	lanIP          string
+)
+
+func primaryLANIP() string {
+	lanIPOnce.Do(func() {
+		c, err := net.DialTimeout("udp", "223.5.5.5:53", 300*time.Millisecond)
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		if a, ok := c.LocalAddr().(*net.UDPAddr); ok && a.IP != nil && !a.IP.IsLoopback() {
+			lanIP = a.IP.String()
+		}
+	})
+	return lanIP
+}
+
+func tcpProbe(addr string) bool {
+	c, err := net.DialTimeout("tcp", addr, 300*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = c.Close()
+	return true
+}
+
+// relayLocalHost 返回该端口在本机可达的 host:port，结果按端口缓存。
+func relayLocalHost(port string) string {
+	relayHostMu.Lock()
+	defer relayHostMu.Unlock()
+	if h, ok := relayHostCache[port]; ok {
+		return h
+	}
+	h := "127.0.0.1:" + port
+	if !tcpProbe(h) {
+		if ip := primaryLANIP(); ip != "" && tcpProbe(ip+":"+port) {
+			log.Printf("[nwg] relay port %s 不监听 loopback，改用 %s", port, ip)
+			h = ip + ":" + port
+		}
+	}
+	relayHostCache[port] = h
+	return h
 }
