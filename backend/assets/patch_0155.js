@@ -5,7 +5,7 @@
 	//    再交给下面的代理前缀改写，这样地址栏还是能打开的那个地址。
 	var _fix0=fix;
 	var RE_UG=/(?:https?):(?:\\?\/){2}[^"'\s]*?ugapp\.link:(\d{2,5})/gi;
-	fix=function(u){try{if(typeof u==="string"&&u.length>10&&u.toLowerCase().indexOf("ugapp.link")>=0)u=u.replace(RE_UG,"http://127.0.0.1:$1");}catch(e){}return _fix0(u);};
+	fix=function(u){try{if(typeof u==="string"&&u.length>10&&u.toLowerCase().indexOf("ugapp.link")>=0){u=u.replace(RE_UG,"http://127.0.0.1:$1");u=u.replace(/\\\//g,"/");}}catch(e){}return _fix0(u);};
 
 	// 1) Worker / SharedWorker / importScripts
 	//    第三方页面常用它们拉脚本；拦不到就会按页面 origin 发请求，直接绕开 /api/p 前缀。
