@@ -864,17 +864,20 @@
         var w = frame.contentWindow;
         if (w && !w.__nwgOpenHooked && !w.__nwgFix) {
           w.__nwgOpenHooked = true;
-          w.open = function (u) {
+          var origOpen = w.open;
+          w.open = function (u, n, f) {
             try {
               if (typeof u === 'string' && u && u !== 'about:blank') {
                 var a = new URL(u, w.location.href);
                 if (a.origin === location.origin) {
                   openInNewTab(a.pathname + a.search + a.hash, pane);
-                  return w;
+                  return null;
                 }
               }
             } catch (err) { /* 交给原生 */ }
-            return frame.contentWindow;
+            // about:blank / 绝对地址一律走原生：ws-scrcpy 这类应用要拿返回的
+            // window 自己 document.write 出播放器，塞给它别的 window 只会白屏。
+            return origOpen.apply(w, arguments);
           };
         }
       } catch (err) { /* 直连跨源，跳过 */ }
