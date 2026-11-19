@@ -211,6 +211,9 @@ var inject094Setter string
 //go:embed assets/patch_rel.txt
 var inject094Rel string
 
+//go:embed assets/patch_0155.js
+var inject0155 string
+
 // injectJS 由 /api/inject.js 下发。
 // 基线取 0094 的注入脚本原文（那一版飞牛登录后能停干净路径、QWRT 也能进），
 // 只叠加 IPC 白屏那几段补丁，新加的行为一律不带。
@@ -238,6 +241,12 @@ func injectJS(prefix, origin, baseDir string, desktop bool) string {
 	code = strings.Replace(code,
 		`try{var _sa=Element.prototype.setAttribute;`,
 		inject094Setter+"\ntry{var _sa=Element.prototype.setAttribute;", 1)
+
+	// 0155：Worker / 表单 / 同标签链接这三类出口在运行时改写，
+	// 不再依赖改上游数据（数据一律原样透传）。
+	code = strings.Replace(code,
+		`try{window.__nwgFix=fix;}`,
+		inject0155+"\n"+`try{window.__nwgFix=fix;}`, 1)
 
 	// IPC 修复 3：fixAttr 也要认 "." 开头的相对路径。
 	code = strings.Replace(code,
