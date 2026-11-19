@@ -182,6 +182,12 @@
     var origin = u.origin;
     var rest = fullURL.slice(origin.length) || '/';
     if (rest.charAt(0) !== '/') rest = '/' + rest;
+    // 目标地址本身已经带了一层 /api/p/<seg>/（例如从“最近访问”里又点回一条旧记录，
+    // 或应用内链接把带前缀的地址当成普通路径），再套一层就成了
+    // /api/p/<A>/api/p/<B>/，上游必然 404 → 白屏。这里把内层前缀剥掉，只留最外层。
+    while (/^\/api\/p\/[A-Za-z0-9_-]+(\/|$)/.test(rest)) {
+      rest = rest.replace(/^\/api\/p\/[A-Za-z0-9_-]+/, '') || '/';
+    }
     return '/api/p/' + segOf(origin, desktop) + rest;
   }
 
