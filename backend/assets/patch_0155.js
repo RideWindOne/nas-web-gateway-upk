@@ -1,5 +1,12 @@
 // 0155：把"运行时拦截"补全，保证不改上游数据也能覆盖所有出口。
 (function(){try{
+	// 0) 绿联第三方应用只肯吐 *.ugapp.link:<端口> 这种地址（含 JSON/JS 里被转义的写法），
+	//    这个域名走的是绿联公网中继，在局域网/DDNS 下打开会失败。统一换成 NAS 本机同端口，
+	//    再交给下面的代理前缀改写，这样地址栏还是能打开的那个地址。
+	var _fix0=fix;
+	var RE_UG=/(?:https?):(?:\\?\/){2}[^"'\s]*?ugapp\.link:(\d{2,5})/gi;
+	fix=function(u){try{if(typeof u==="string"&&u.length>10&&u.toLowerCase().indexOf("ugapp.link")>=0)u=u.replace(RE_UG,"http://127.0.0.1:$1");}catch(e){}return _fix0(u);};
+
 	// 1) Worker / SharedWorker / importScripts
 	//    第三方页面常用它们拉脚本；拦不到就会按页面 origin 发请求，直接绕开 /api/p 前缀。
 	function wrapWorker(n){var O=window[n];if(!O)return;var W=function(u,o){try{if(typeof u==="string")u=fix(u);}catch(e){}return new O(u,o);};W.prototype=O.prototype;window[n]=W;}
