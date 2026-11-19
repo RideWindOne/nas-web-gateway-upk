@@ -162,13 +162,17 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 前缀去重：飞牛登录会把 redirect_uri 原样跳回来，而它当初记下的就是带前缀的
 	// 地址，于是出现 /api/p/<seg>/api/p/<seg>/xxx，上游必然 404（表现为登录后
 	// 落到“这里暂时没有装入页面”）。这里把重复的、且指向同一上游的前缀剥掉。
+	// 只认“合法编码的上游地址”，不看它是否和当前上游相同：/api/p/ 前缀是本网关
+	// 自己生成的，上游应用不可能自己吐这条路径；一旦出现第二层，只可能是注入脚本
+	// 或应用在已带前缀的地址上又补了一次（曾经出现过 .../8000/api/p/127.0.0.1:443/，
+	// 上游直接 404 → 白屏）。相同上游的剥法不变，不同上游的也剥，保留最外层。
 	for strings.HasPrefix(rest, "api/p/") {
 		inner := strings.TrimPrefix(rest, "api/p/")
 		nxt, after := inner, ""
 		if i := strings.Index(inner, "/"); i >= 0 {
 			nxt, after = inner[:i], inner[i+1:]
 		}
-		if o2, e2 := decodeOrigin(nxt); e2 == nil && o2 == origin {
+		if _, e2 := decodeOrigin(nxt); e2 == nil {
 			rest = after
 			continue
 		}
