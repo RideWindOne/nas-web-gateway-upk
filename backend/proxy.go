@@ -254,6 +254,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	applyUA(req.Header, uaMode(r))
 	// 让上游以为这是一次直连，绕开固件对 Host 的校验
 	req.Host = host
+	fixForwardSiteHeaders(req, u, host)
 
 	if ck := p.jar.Get(host); ck != "" {
 		req.Header.Set("Cookie", ck)
@@ -403,6 +404,38 @@ func sanitizeQuery(raw, marker string) string {
 }
 
 // isJSONContentType 判断是否 JSON（跳过 SSE 等流式类型）。
+// fixForwardSiteHeaders 把浏览器的 Origin / Referer 换回上游自己的站点。
+// Lucky 这类面板会校验 Origin（不是同源 POST 直接 403），飞牛的部分接口也看 Referer；
+// 而浏览器发给网关的 Origin 是我们的地址（如 http://172.30.2.231:9999），所以要改回去。
+func fixForwardSiteHeaders(req *http.Request, upstream *url.URL, host string) {
+	if upstream == nil {
+		return
+	}
+	sch := upstream.Scheme
+	if sch == "" {
+		sch = "http"
+	}
+	self := sch + "://" + host
+
+	if o := req.Header.Get("Origin"); o != "" {
+		if ou, err := url.Parse(o); err == nil && !strings.EqualFold(ou.Host, host) {
+			req.Header.Set("Origin", self)
+		}
+	}
+	if ref := req.Header.Get("Referer"); ref != "" {
+		if ru, err := url.Parse(ref); err == nil && !strings.EqualFold(ru.Host, host) {
+			p := ru.EscapedPath()
+			if p == "" {
+				p = "/"
+			}
+			if ru.RawQuery != "" {
+				p += "?" + ru.RawQuery
+			}
+			req.Header.Set("Referer", self+p)
+		}
+	}
+}
+
 func isJSONContentType(ct string) bool {
 	lc := strings.ToLower(ct)
 	return strings.Contains(lc, "application/json") || strings.Contains(lc, "+json")
@@ -426,6 +459,7 @@ func (p *Proxy) fetchRootHTML(r *http.Request, origin, host string) ([]byte, boo
 	req.Header.Set("Accept-Encoding", "gzip")
 	applyUA(req.Header, uaMode(r))
 	req.Host = host
+	fixForwardSiteHeaders(req, u, host)
 	if ck := p.jar.Get(host); ck != "" {
 		req.Header.Set("Cookie", ck)
 	}
@@ -497,6 +531,7 @@ func (p *Proxy) serveWS(w http.ResponseWriter, r *http.Request, target, host str
 			req.URL.RawQuery = u.RawQuery
 			// 上游按 Host 做校验，这里还原成目标自己的主机名
 			req.Host = host
+	fixForwardSiteHeaders(req, u, host)
 			req.Header.Del("Ugreen-App-Proxy-Target")
 			req.Header.Del("Ugreen-App-Proxy-Type")
 			req.Header.Del("X-Nwg-Force-UA")
