@@ -142,11 +142,31 @@
     return false;
   }
 
+  // UGREENlink 的远程域名（app-xxxx.ugapp.link:端口）在绿联云桌面里常被当成
+  // “本地应用地址”发出来（/ugreen/v1/desktop/redirect?url=<base64>）。这种带端口
+  // 的远程地址从手机/浏览器根本连不上，而同一个端口在 NAS 本机上就是同一个服务，
+  // 代理又是从 NAS 发出去的，所以统一换回 127.0.0.1:端口。
+  function localizeRelay(u) {
+    try {
+      if (!/\.ugapp\.link$/i.test(u.hostname)) return u;
+      if (!u.port || u.port === '443') return u;
+      var nu = new URL(u.href);
+      nu.protocol = 'http:';
+      nu.host = '127.0.0.1:' + u.port;
+      return nu;
+    } catch (e) { return u; }
+  }
+
   function normalize(raw) {
     var s = (raw || '').trim();
     if (!s) return '';
-    if (/^https?:\/\//i.test(s)) return s;
-    return 'http://' + s;
+    if (!/^https?:\/\//i.test(s)) s = 'http://' + s;
+    try {
+      var u = new URL(s);
+      var lu = localizeRelay(u);
+      if (lu !== u) return lu.href;
+    } catch (e) { /* 忽略 */ }
+    return s;
   }
 
   // Service Worker 只在安全上下文可用：https、localhost、127.0.0.1

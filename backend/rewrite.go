@@ -353,6 +353,28 @@ func collapseDotDot(baseDir, dots, rest string) string {
 	return p + rest
 }
 
+// localizeRelayHost：把 UGREENlink 的远程域名（app-xxxx.ugapp.link:端口）换回本机地址。
+// 绿联云桌面上的“打开应用”会给出 https://app-xxxx.ugapp.link:16601 这类远程地址，
+// 手机/浏览器拿到它只能去公网连那个端口，必然打不开；而这个端口在 NAS 本机上就是
+// 同一个端口，代理又是从 NAS 发出去的，所以改写成 127.0.0.1:端口 就能直接转通。
+func localizeRelayHost(u *url.URL) *url.URL {
+	if u == nil {
+		return u
+	}
+	host := strings.ToLower(u.Hostname())
+	if !strings.HasSuffix(host, ".ugapp.link") {
+		return u
+	}
+	port := u.Port()
+	if port == "" || port == "443" {
+		return u
+	}
+	nu := *u
+	nu.Scheme = "http"
+	nu.Host = "127.0.0.1:" + port
+	return &nu
+}
+
 func rewriteLocation(loc, origin, prefix, marker string) string {
 	if loc == "" {
 		return loc
@@ -395,6 +417,11 @@ func rewriteLocation(loc, origin, prefix, marker string) string {
 	scheme := u.Scheme
 	if scheme == "" {
 		scheme = "http"
+	}
+	// 远程域名带非 443 端口时，先换回 127.0.0.1 的同端口地址再编码前缀。
+	if lu := localizeRelayHost(u); lu != u {
+		scheme = lu.Scheme
+		u = lu
 	}
 	newPrefix := marker + base64.RawURLEncoding.EncodeToString([]byte(scheme+"://"+u.Host))
 	return newPrefix + rest
