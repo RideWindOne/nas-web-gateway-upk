@@ -510,7 +510,9 @@ func decodeOrigin(seg string) (string, error) {
 	if !strings.Contains(s, "://") || len(s) > 512 {
 		return "", errBadTarget
 	}
-	return s, nil
+	// 指向 NAS 自己的局域网地址统一收敛到 127.0.0.1，避免同一上游出现两个前缀、
+	// 两套会话 cookie（表现为登录成功后又退回登录页）。
+	return canonOrigin(s), nil
 }
 
 func isWebSocket(r *http.Request) bool {

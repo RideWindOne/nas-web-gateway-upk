@@ -432,7 +432,7 @@ func rewriteLocation(loc, origin, prefix, marker string) string {
 		scheme = lu.Scheme
 		u = lu
 	}
-	newPrefix := marker + base64.RawURLEncoding.EncodeToString([]byte(scheme+"://"+u.Host))
+	newPrefix := marker + base64.RawURLEncoding.EncodeToString([]byte(canonOrigin(scheme+"://"+u.Host)))
 	return newPrefix + rest
 }
 
