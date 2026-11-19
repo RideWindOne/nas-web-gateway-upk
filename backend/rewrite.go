@@ -447,3 +447,19 @@ func gunzipBytes(body []byte, encoding string) []byte {
 	}
 	return b
 }
+
+// ugappRelayRe / ugappRelayEscRe：UGREENlink 远程域名带端口。绿联云桌面除了用 302
+// 跳转，还会把 https://app-xxxx.ugapp.link:16601 这类地址直接写进 HTML/JSON/JS 里交给
+// 前端 window.open；只在 Location 上本地化会漏掉这些，所以响应体也要扫一遍。
+var ugappRelayRe = regexp.MustCompile(`(?i)https?://[a-z0-9.\-]+\.ugapp\.link:([0-9]{2,5})`)
+var ugappRelayEscRe = regexp.MustCompile(`(?i)https?:\\/\\/[a-z0-9.\-]+\.ugapp\.link:([0-9]{2,5})`)
+
+// localizeRelayText 把响应体里的远程域名+端口换成本机 127.0.0.1:端口。
+func localizeRelayText(body []byte) []byte {
+	if !bytes.Contains(body, []byte("ugapp.link")) {
+		return body
+	}
+	body = ugappRelayEscRe.ReplaceAll(body, []byte(`http:\/\/127.0.0.1:$1`))
+	body = ugappRelayRe.ReplaceAll(body, []byte("http://127.0.0.1:$1"))
+	return body
+}

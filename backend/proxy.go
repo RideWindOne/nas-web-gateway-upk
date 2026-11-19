@@ -308,6 +308,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		body = rewriteHTML(body, prefix, baseDir, origin, uaMode(r))
+		body = localizeRelayText(body)
 		w.Header().Del("Content-Encoding")
 
 		if clientAcceptsGzip(r) && len(body) > 512 {
@@ -339,8 +340,21 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[nwg] dbg %s%s hdr=%v body=%s", host, rest, dbgHeaders(r), prev)
 		}
 		body = rewriteLanURLs(body, marker)
+		body = localizeRelayText(body)
 		w.Header().Del("Content-Encoding")
 		w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+		w.WriteHeader(resp.StatusCode)
+		_, _ = w.Write(body)
+		return
+	}
+
+	// JS/脚本：绿联桌面会在脚本里硬编码 https://app-xxxx.ugapp.link:<端口>，
+	// 这里统一换成本机同端口，否则前端 window.open 出去还是公网连不上的地址。
+	if isScriptContentType(resp.Header.Get("Content-Type")) {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+		body = gunzipBytes(body, resp.Header.Get("Content-Encoding"))
+		body = localizeRelayText(body)
+		w.Header().Del("Content-Encoding")
 		w.WriteHeader(resp.StatusCode)
 		_, _ = w.Write(body)
 		return
@@ -403,6 +417,11 @@ func sanitizeQuery(raw, marker string) string {
 }
 
 // isJSONContentType 判断是否 JSON（跳过 SSE 等流式类型）。
+func isScriptContentType(ct string) bool {
+	lc := strings.ToLower(ct)
+	return strings.Contains(lc, "javascript") || strings.Contains(lc, "ecmascript")
+}
+
 func isJSONContentType(ct string) bool {
 	lc := strings.ToLower(ct)
 	return strings.Contains(lc, "application/json") || strings.Contains(lc, "+json")
