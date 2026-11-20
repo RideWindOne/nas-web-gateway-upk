@@ -62,6 +62,9 @@
   var layout = localStorage.getItem('nwg.layout') === 'split' ? 'split' : 'single';
   var drawerMode = 'history';
   var appsCache = [];
+  // 后端 /api/info 会报本机的私网 IPv4。从绿联桌面里打开时，浏览器看到的主机是
+  // 127.0.0.1，用它去拼应用地址就会指回“打开页面的这台机器”；换台电脑/手机就错。
+  var gatewayLanIP = '';
   var editing = null;   // 当前编辑的应用（null 表示新建）
   var editColor = '#5b8def';
 
@@ -152,17 +155,43 @@
       if (!u.port || u.port === '443') return u;
       var nu = new URL(u.href);
       nu.protocol = 'http:';
-      nu.host = '127.0.0.1:' + u.port;
+      // 网关自己也是从 NAS 上跑的，换回 127.0.0.1 只对“从 NAS 里发出去的请求”成立；
+      // 但标签页是手机/电脑在访问，地址栏填 127.0.0.1 其实是访问自己。优先级：
+      //   1) 本来就是用局域网 IP 打开本应用的，沿用那个 IP；
+      //   2) 从 127.0.0.1（绿联桌面里的入口）打开时，换成本机报出来的私网 IP；
+      //   3) 远程域名访问（ug.link）时仍是 127.0.0.1，交给代理转出去。
+      var h = location.hostname;
+      if (h === '127.0.0.1' || h === 'localhost' || h === '::1' || !h) h = gatewayLanIP || '127.0.0.1';
+      if (!isLanHost(h)) h = '127.0.0.1';
+      nu.host = h + ':' + u.port;
       return nu;
     } catch (e) { return u; }
+  }
+
+  // 绿联桌面点第三方应用时给的是包装地址
+  // /ugreen/v1/desktop/redirect?url=<base64(真实地址)>，地址栏停在包装路径上，
+  // 应用 JS 会按 location.pathname 拼接口，全落到 desktop 自己的 404。这里直接
+  // 把包装解开，用真实地址开标签（里面带端口就自然换成局域网 IP）。
+  function unwrapDesktopRedirect(s) {
+    var m = /\/ugreen\/v1\/desktop\/redirect(?:\/)?\?(?:.*?&)?url=([^&#]+)/i.exec(s);
+    if (!m) return s;
+    var b = decodeURIComponent(m[1]).replace(/-/g, '+').replace(/_/g, '/');
+    while (b.length % 4) b += '=';
+    try {
+      var real = window.atob(b);
+      return /^https?:\/\//i.test(real) ? real : s;
+    } catch (e) { return s; }
   }
 
   function normalize(raw) {
     var s = (raw || '').trim();
     if (!s) return '';
+    s = unwrapDesktopRedirect(s);
     if (!/^https?:\/\//i.test(s)) s = 'http://' + s;
     try {
       var u = new URL(s);
+      // 桌面给的本机地址（127.0.0.1）原样保留：那只是“后端往哪转发”，
+      // 经代理打开时任何设备都能用，硬改反而会把真实的上游目标弄错。
       var lu = localizeRelay(u);
       if (lu !== u) return lu.href;
     } catch (e) { /* 忽略 */ }
@@ -212,6 +241,14 @@
       .then(function (r) { return r.ok ? r.json() : []; })
       .catch(function () { return []; });
   }
+
+  try { gatewayLanIP = localStorage.getItem('nwg-lanip') || gatewayLanIP; } catch (e) {}
+  api('/api/info').then(function (d) {
+    if (d && d.lanip && d.lanip !== gatewayLanIP) {
+      gatewayLanIP = d.lanip;
+      try { localStorage.setItem('nwg-lanip', d.lanip); } catch (e) {}
+    }
+  });
 
   // 引导页/占位页的标题不能当历史，否则首页会出现一堆“加载中”
   var PLACEHOLDER_TITLES = { '加载中': 1, '正在接管该站点…': 1, 'about:blank': 1, '': 1, '无法连接': 1, '无法连接到目标设备': 1, '错误': 1 };
@@ -637,10 +674,15 @@
     applyZoom(activePane, paneZoom(activePane) + dir * 0.1);
   }
 
+  // 整屏显示的倍率区间：下限 50%（手机 390px 宽按 1280 排版算下来只有 30%，
+  // 字小到没法读，实测 50% 最合适）；上限 100%（宽屏上不要放大）。
+  var ZOOM_FIT_MIN = 0.5, ZOOM_FIT_MAX = 1;
+
   function fitZoom() {
     if (!activePane) return;
     var w = panesEl.clientWidth || 390;
-    applyZoom(activePane, w / 1280);
+    var z = w / 1280;
+    applyZoom(activePane, Math.max(ZOOM_FIT_MIN, Math.min(ZOOM_FIT_MAX, z)));
   }
 
   // 地址栏跟着当前标签走：切换标签即回显该标签正在访问的地址
@@ -691,6 +733,7 @@
       tab.appendChild(x);
       tabsEl.appendChild(tab);
     });
+    scheduleSave();
   }
 
   function closePane(pane) {
@@ -706,9 +749,108 @@
     syncEmpty();
   }
 
+  // ---------- 会话保持（等效“退到后台”） ----------
+  // 绿联 App 里点「关闭」会销毁页面容器，下次进来整页重新加载，已开的标签就没了。
+  // 把标签列表写进 localStorage，重进时原样恢复；只有主动点「关闭全部」才清掉。
+  var SESSION_KEY = 'nwg.session';
+  var SESSION_TTL = 12 * 60 * 60 * 1000;   // 超过 12 小时不恢复，避免打开一堆早就没用的页面
+  var SESSION_MAX = 8;                     // 最多恢复 8 个标签
+  var restoringSession = false;
+  var sessionTimer = null;
+
+  function sessionSnapshot() {
+    var list = panesList();
+    var panes = [];
+    for (var i = 0; i < list.length && i < SESSION_MAX; i++) {
+      var p = list[i];
+      if (!p.dataset.url) continue;
+      panes.push({
+        u: p.dataset.url,
+        n: p.dataset.name || '',
+        p: p.dataset.proxy === '1',
+        d: p.dataset.desktop === '1'
+      });
+    }
+    var active = activePane ? list.indexOf(activePane) : -1;
+    return { t: Date.now(), home: homeMode, active: active, panes: panes };
+  }
+
+  function saveSession() {
+    if (restoringSession) return;
+    if (sessionTimer) { clearTimeout(sessionTimer); sessionTimer = null; }
+    try {
+      var snap = sessionSnapshot();
+      if (!snap.panes.length) {
+        localStorage.removeItem(SESSION_KEY);
+        return;
+      }
+      localStorage.setItem(SESSION_KEY, JSON.stringify(snap));
+    } catch (e) {}
+  }
+
+  function scheduleSave() {
+    if (restoringSession) return;
+    if (sessionTimer) return;   // 已有待写入的定时器，合并成一次
+    sessionTimer = setTimeout(function () {
+      sessionTimer = null;
+      saveSession();
+    }, 400);
+  }
+
+  function clearSession() {
+    try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+  }
+
+  // 返回 true 表示恢复出了至少一个标签
+  function restoreSession() {
+    var raw = null;
+    try { raw = localStorage.getItem(SESSION_KEY); } catch (e) { return false; }
+    if (!raw) return false;
+    var st = null;
+    try { st = JSON.parse(raw); } catch (e) { return false; }
+    if (!st || !st.panes || !st.panes.length) return false;
+    if (st.t && Date.now() - st.t > SESSION_TTL) { clearSession(); return false; }
+
+    restoringSession = true;
+    try {
+      st.panes.forEach(function (it) {
+        if (!it || !it.u) return;
+        addPane(it.u, {
+          proxy: !!it.p,
+          desktop: !!it.d,
+          name: it.n || '',
+          focus: false
+        });
+      });
+    } finally {
+      restoringSession = false;
+    }
+
+    var list = panesList();
+    if (!list.length) { clearSession(); return false; }
+    if (st.home) {
+      showHome();
+    } else {
+      var idx = (typeof st.active === 'number' && st.active >= 0 && st.active < list.length)
+        ? st.active : list.length - 1;
+      activate(list[idx]);
+    }
+    saveSession();
+    return true;
+  }
+
+  window.addEventListener('pagehide', saveSession);
+  // 容器销毁前也可能只触发 visibilitychange
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') saveSession();
+  });
+
   // opts: { proxy: bool, name: string, focus: bool }
   function addPane(rawURL, opts) {
     opts = opts || {};
+    // 从绿联桌面包装地址解出来的目标：局域网下就直接连过去，别套代理前缀，
+    // 这样地址栏就是我们想要的那个真实地址（172.30.2.231:端口）。
+    var fromWrapper = /\/ugreen\/v1\/desktop\/redirect/i.test(String(rawURL || ''));
     var url = normalize(rawURL);
     if (!url) return null;
 
@@ -718,6 +860,7 @@
     var proxy = opts.proxy === undefined
       ? (localStorage.getItem('nwg-proxyDefault') !== '0')
       : !!opts.proxy;
+    if (fromWrapper && isLanHost(location.hostname) && opts.proxy === undefined) proxy = false;
     var u0 = new URL(url);
     // 公网站点（百度这类）经代理会被逐条改写 URL，脚本里动态拼接的地址极容易出错；
     // 它本来就是公网可达的，直连更稳。例外：https 外壳里打 http 目标只能走代理。
@@ -845,6 +988,20 @@
             frame.contentWindow.history.replaceState(null, '', clean + (loc.hash || ''));
           } catch (e2) {}
           path = clean;
+        }
+        // 绿联桌面点第三方应用，会把当前标签带进包装地址
+        // /ugreen/v1/desktop/redirect?url=<base64>。这种地址没有意义（应用自己
+        // 的接口全在它下面拼，必然 404），换成真实地址另开一个标签，这个标签关掉。
+        if (/\/ugreen\/v1\/desktop\/redirect/i.test(path)) {
+          var realURL = unwrapDesktopRedirect(path);
+          if (realURL && realURL !== path) {
+            setTimeout(function () {
+              var np = addPane(realURL, { proxy: isLanHost(location.hostname) ? false : true });
+              if (np) activate(np);
+              closePane(pane);
+            }, 0);
+            return;
+          }
         }
         // 还在引导页（boot.html）等 Service Worker 接管时，地址栏不要跟着跳，
         // 否则会短暂显示 http://目标/boot.html?seg=...
@@ -1379,8 +1536,7 @@
     } else if (act === 'newApp') {
       openSheet(null);
     } else if (act === 'fav') {
-      if (urlInput.value.trim()) addFavorite(normalize(urlInput.value), null);
-      else openDrawer('fav');
+      addCurrentAsApp();
     } else if (act === 'favList') {
       openDrawer('fav');
     } else if (act === 'history') {
@@ -1416,6 +1572,7 @@
     } else if (act === 'closeAll') {
       panesEl.innerHTML = '';
       activePane = null;
+      clearSession();
       syncEmpty();
     }
   });
@@ -1547,6 +1704,40 @@
       api('/api/history', { method: 'DELETE' }).then(renderDrawer);
     }
   });
+
+  // ---------- 加入网页应用 ----------
+  // 原来是「收藏当前地址」：收藏夹平时没人翻，而把当前页一键变成网页应用卡片
+  // 用处大得多——下次从空白页/桌面点一下就开，名称、颜色后续都能在编辑页改。
+  function currentUrl() {
+    if (activePane && activePane.dataset.url) return activePane.dataset.url;
+    return urlInput.value.trim();
+  }
+
+  function addCurrentAsApp() {
+    var raw = currentUrl();
+    if (!raw) { openSheet(null); return; }        // 没有地址时退化成新建
+    var url = normalize(raw);
+    var dup = null;
+    for (var i = 0; i < appsCache.length; i++) {
+      if (appsCache[i].url === url) { dup = appsCache[i]; break; }
+    }
+    if (dup) { openSheet(dup); return; }          // 已经在列表里，直接打开编辑页
+    var defName = (activePane && activePane.dataset.name) || hostOf(url) || url;
+    var name = window.prompt('应用名称', defName);
+    if (name === null) return;
+    api('/api/apps', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: '',
+        name: name || hostOf(url),
+        url: url,
+        note: '',
+        color: PALETTE[1],
+        proxy: true,
+        desktop: !!(activePane && activePane.dataset.desktop === '1')
+      })
+    }).then(loadApps);
+  }
 
   // ---------- 收藏 ----------
   function addFavorite(url, presetName) {
@@ -1700,5 +1891,5 @@
   applyLayout();
   syncZoomUI();
   loadApps();
-  syncEmpty();
+  if (!restoreSession()) syncEmpty();
 })();

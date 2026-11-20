@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -160,7 +161,31 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"ok":true}`))
 }
 
+// lanIP 返回本机第一个私网 IPv4（跳过回环和容器网桥）。客户端拿它拼局域网地址：
+// 绿联桌面里点应用给的是包装地址，里面常带 ugapp.link:端口 或 127.0.0.1:端口，
+// 而 127.0.0.1 在手机/别的机器上指的是它自己。
+func lanIP() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+	for _, a := range addrs {
+		ipn, ok := a.(*net.IPNet)
+		if !ok || ipn.IP.IsLoopback() {
+			continue
+		}
+		v4 := ipn.IP.To4()
+		if v4 == nil {
+			continue
+		}
+		if v4[0] == 192 && v4[1] == 168 || v4[0] == 10 || (v4[0] == 172 && v4[1] >= 16 && v4[1] <= 31) {
+			return v4.String()
+		}
+	}
+	return ""
+}
+
 func infoHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	fmt.Fprintf(w, `{"ok":true,"host":%q,"prefix":%q}`, r.Host, "/gw")
+	fmt.Fprintf(w, `{"ok":true,"host":%q,"prefix":%q,"lanip":%q}`, r.Host, "/gw", lanIP())
 }

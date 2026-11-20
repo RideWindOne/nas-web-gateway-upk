@@ -74,6 +74,9 @@ type Proxy struct {
 	tr     *http.Transport // WS 升级要用同一套 Transport
 }
 
+// 绿联桌面给第三方应用套的链接包装前缀，见 ServeHTTP 里的入口剥离。
+const redirectWrapper = "ugreen/v1/desktop/redirect/"
+
 var hopHeaders = []string{
 	"Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization",
 	"Te", "Trailer", "Transfer-Encoding", "Upgrade",
@@ -90,6 +93,9 @@ func NewProxy(jar *CookieJar, insecure bool) *Proxy {
 		MaxIdleConnsPerHost:   32,
 		IdleConnTimeout:       90 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+		// 只管“等响应头”，不等 body：视频、固件下载、SSE 都是头先到、body 慢慢流，
+		// 所以这里不会把它们掐断。没有它，上游“TCP 通了但不回包”会一直白屏。
+		ResponseHeaderTimeout: 30 * time.Second,
 		DisableCompression:    true, // 自己控制压缩，才能改写 HTML
 		ForceAttemptHTTP2:     false,
 	}
@@ -192,6 +198,17 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 绿联桌面给第三方应用套的链接包装段 /ugreen/v1/desktop/redirect?url=<应用地址>。
+	// 应用自己的 JS 按 location.pathname 拼接口，包装段就顺着漏进请求路径
+	// （.../redirect/api/xxx、.../redirect/api/webterminal/connect/xxx），上游应用
+	// 根本没有这层路由。在入口统一剥一次，HTTP 与 WebSocket 都不再各自兜底。
+	if strings.HasPrefix(rest, redirectWrapper) {
+		rest = strings.TrimPrefix(strings.TrimPrefix(rest, redirectWrapper), "/")
+		if !isAssetPath(rest) {
+			log.Printf("[nwg] unwrap -> /%s", rest)
+		}
+	}
+
 	// seg 里带 "d|" 标记 = 这个应用要求电脑版 UA；用内部请求头传给下游，
 	// 出站前会在 Director 里删掉，不会带到上游。
 	if isDesktopSeg(seg) {
@@ -266,6 +283,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := p.client.Do(req)
 	if err != nil {
+		// 502 页面只写给浏览器，日志里必须留一行，否则事后分不清“没响应”和“连不上”。
+		log.Printf("[nwg] !! upstream %s%s: %v", host, rest, err)
 		writeProxyError(w, prefix, err)
 		return
 	}
@@ -554,6 +573,7 @@ func (p *Proxy) serveWS(w http.ResponseWriter, r *http.Request, target, host str
 		Transport:     p.tr,
 		FlushInterval: -1,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			log.Printf("[nwg] !! ws upstream %s: %v", host, err)
 			http.Error(w, "ws upstream unreachable: "+err.Error(), http.StatusBadGateway)
 		},
 	}

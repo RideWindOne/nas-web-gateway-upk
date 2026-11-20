@@ -906,20 +906,22 @@ body.home .panes { display: none; }
 
 /* ---------- 菜单里的缩放行（− 100% ＋，仿 Chrome） ---------- */
 
+/* 一行放六个：− 100% ＋ ｜ 还原 整屏。菜单内宽约 200px，
+   所以按钮收窄到 28、百分比收窄到 48、间距 4，正好排得下不折行。 */
 .menu-zoom {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 4px;
   margin: 4px 6px 6px;
-  padding: 2px 6px;
+  padding: 2px 2px;
   border: 1px solid var(--line);
   border-radius: 9px;
   background: var(--panel);
 }
 #menu .mz-btn {
-  flex: 0 0 32px;
-  width: 32px; height: 28px;
+  flex: 0 0 28px;
+  width: 28px; height: 28px;
   gap: 0;
   text-align: center;
   padding: 0;
@@ -935,8 +937,8 @@ body.home .panes { display: none; }
 }
 #menu .mz-btn:active { color: var(--accent); background: var(--accent-soft); }
 #menu .mz-val {
-  flex: 0 0 56px;
-  width: 56px; height: 28px;
+  flex: 0 0 48px;
+  width: 48px; height: 28px;
   display: grid;
   place-items: center;
   box-sizing: border-box;
@@ -959,9 +961,9 @@ body.home .panes { display: none; }
   background: var(--line);
 }
 
-#menu .mz-reset { border-radius: 7px; }
-#menu .mz-reset svg { width: 14px; height: 14px; color: var(--muted); }
-#menu .mz-reset:active svg { color: var(--accent); }
+#menu .mz-reset, #menu .mz-fit { border-radius: 7px; }
+#menu .mz-reset svg, #menu .mz-fit svg { width: 14px; height: 14px; color: var(--muted); }
+#menu .mz-reset:active svg, #menu .mz-fit:active svg { color: var(--accent); }
 
 /* ---------- 隐藏工具栏（沉浸查看） ---------- */
 
