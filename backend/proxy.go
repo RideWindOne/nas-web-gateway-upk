@@ -342,11 +342,11 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// JSON：把接口里返回的局域网绝对地址改写成代理前缀。
-	// 飞牛 fnOS 的应用列表/应用令牌接口会直接给出 `http://172.30.2.126:16601/?token=…`，
-	// 桌面点开第三方应用时这个地址被交给新窗口，手机根本连不到 → 白窗。
-	// 改写成 `/api/p/<seg>/…` 后，无论窗口是内嵌 iframe 还是原生新窗口，
-	// 都会落回网关自己的域名，走代理出去。
+	// JSON：原样透传（0155 起不再改写里面的局域网绝对地址）。
+	// 曾经改写的原因：飞牛 fnOS 的应用列表/令牌接口直接给出
+	// `http://172.30.2.126:16601/?token=…`，桌面点开会被交给新窗口，手机连不到 → 白窗。
+	// 但改写副作用更大：Lucky 这类应用的规则目标被改写成 /api/p/<seg>/…，界面显示被污染，
+	// 保存回填时把配置写坏。现在“点了能打开”交给 /api/inject.js 在调用那一刻改写。
 	if isJSONContentType(resp.Header.Get("Content-Type")) {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 		body = gunzipBytes(body, resp.Header.Get("Content-Encoding"))
@@ -357,7 +357,11 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			log.Printf("[nwg] dbg %s%s hdr=%v body=%s", host, rest, dbgHeaders(r), prev)
 		}
-		body = rewriteLanURLs(body, marker)
+		// 0155：JSON 一律原样透传，不再把里面的绝对地址改写成代理前缀。
+		// 理由：JSON 里的地址多半是业务数据（如 Lucky 的默认规则目标），改了既污染
+		// 界面显示，又会在保存回填时把配置写坏。需要“点了能打开”的地址，交给页面里的
+		// 运行时拦截（/api/inject.js）在调用那一刻改写。
+		_ = marker
 		w.Header().Del("Content-Encoding")
 		w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 		w.WriteHeader(resp.StatusCode)
