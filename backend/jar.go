@@ -35,58 +35,27 @@ func NewCookieJar(path string) *CookieJar {
 	return j
 }
 
-// Get 返回该 host 的 cookie。0157：同一个应用可能经多条路径进来
-// （飞牛桌面里是 /app/Lucky/…，直连是 127.0.0.1:16601，局域网是 172.30.2.231:16601），
-// 按 host 分桶会让登录态只存在于某一个桶里 —— 页面中途只要有一处跳到别的地址，
-// 就会掉回登录页。浏览器侧只有一个 origin，所以这里也按"全局并集"取：
-// 本 host 已有的优先，其它 host 里没重名的再补进来。
 func (j *CookieJar) Get(host string) string {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
-	now := time.Now().Unix()
-	merged := map[string]string{}
-	has := func(k string) bool { _, ok := merged[k]; return ok }
-
-	addFrom := func(m map[string]cookieEntry) {
-		if len(m) == 0 {
-			return
-		}
-		keys := make([]string, 0, len(m))
-		for k, e := range m {
-			if e.Expires > 0 && e.Expires < now {
-				delete(m, k)
-				continue
-			}
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			if has(k) {
-				continue
-			}
-			merged[k] = m[k].Value
-		}
-	}
-
-	addFrom(j.data[host])
-	for h, m := range j.data {
-		if h == host {
-			continue
-		}
-		addFrom(m)
-	}
-	if len(merged) == 0 {
+	m := j.data[host]
+	if len(m) == 0 {
 		return ""
 	}
-	keys := make([]string, 0, len(merged))
-	for k := range merged {
+	now := time.Now().Unix()
+	keys := make([]string, 0, len(m))
+	for k, e := range m {
+		if e.Expires > 0 && e.Expires < now {
+			delete(m, k)
+			continue
+		}
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	parts := make([]string, 0, len(keys))
 	for _, k := range keys {
-		parts = append(parts, k+"="+merged[k])
+		parts = append(parts, k+"="+m[k].Value)
 	}
 	return strings.Join(parts, "; ")
 }

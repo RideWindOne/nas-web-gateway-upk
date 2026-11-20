@@ -190,8 +190,6 @@
     if (!/^https?:\/\//i.test(s)) s = 'http://' + s;
     try {
       var u = new URL(s);
-      // 桌面给的本机地址（127.0.0.1）原样保留：那只是“后端往哪转发”，
-      // 经代理打开时任何设备都能用，硬改反而会把真实的上游目标弄错。
       var lu = localizeRelay(u);
       if (lu !== u) return lu.href;
     } catch (e) { /* 忽略 */ }
@@ -211,12 +209,6 @@
     var origin = u.origin;
     var rest = fullURL.slice(origin.length) || '/';
     if (rest.charAt(0) !== '/') rest = '/' + rest;
-    // 目标地址本身已经带了一层 /api/p/<seg>/（例如从“最近访问”里又点回一条旧记录，
-    // 或应用内链接把带前缀的地址当成普通路径），再套一层就成了
-    // /api/p/<A>/api/p/<B>/，上游必然 404 → 白屏。这里把内层前缀剥掉，只留最外层。
-    while (/^\/api\/p\/[A-Za-z0-9_-]+(\/|$)/.test(rest)) {
-      rest = rest.replace(/^\/api\/p\/[A-Za-z0-9_-]+/, '') || '/';
-    }
     return '/api/p/' + segOf(origin, desktop) + rest;
   }
 
@@ -242,12 +234,8 @@
       .catch(function () { return []; });
   }
 
-  try { gatewayLanIP = localStorage.getItem('nwg-lanip') || gatewayLanIP; } catch (e) {}
   api('/api/info').then(function (d) {
-    if (d && d.lanip && d.lanip !== gatewayLanIP) {
-      gatewayLanIP = d.lanip;
-      try { localStorage.setItem('nwg-lanip', d.lanip); } catch (e) {}
-    }
+    if (d && d.lanip) gatewayLanIP = d.lanip;
   });
 
   // 引导页/占位页的标题不能当历史，否则首页会出现一堆“加载中”
@@ -750,7 +738,7 @@
   }
 
   // ---------- 会话保持（等效“退到后台”） ----------
-  // 绿联 App 里点「关闭」会销毁页面容器，下次进来整页重新加载，已开的标签就没了。
+  // 绿联里点右上角关闭会销毁页面容器，重进整页重载，已开的标签就没了。
   // 把标签列表写进 localStorage，重进时原样恢复；只有主动点「关闭全部」才清掉。
   var SESSION_KEY = 'nwg.session';
   var SESSION_TTL = 12 * 60 * 60 * 1000;   // 超过 12 小时不恢复，避免打开一堆早就没用的页面
@@ -840,7 +828,6 @@
   }
 
   window.addEventListener('pagehide', saveSession);
-  // 容器销毁前也可能只触发 visibilitychange
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'hidden') saveSession();
   });
@@ -1027,20 +1014,17 @@
         var w = frame.contentWindow;
         if (w && !w.__nwgOpenHooked && !w.__nwgFix) {
           w.__nwgOpenHooked = true;
-          var origOpen = w.open;
-          w.open = function (u, n, f) {
+          w.open = function (u) {
             try {
               if (typeof u === 'string' && u && u !== 'about:blank') {
                 var a = new URL(u, w.location.href);
                 if (a.origin === location.origin) {
                   openInNewTab(a.pathname + a.search + a.hash, pane);
-                  return null;
+                  return w;
                 }
               }
             } catch (err) { /* 交给原生 */ }
-            // about:blank / 绝对地址一律走原生：ws-scrcpy 这类应用要拿返回的
-            // window 自己 document.write 出播放器，塞给它别的 window 只会白屏。
-            return origOpen.apply(w, arguments);
+            return frame.contentWindow;
           };
         }
       } catch (err) { /* 直连跨源，跳过 */ }

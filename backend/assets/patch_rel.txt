@@ -1,1 +1,0 @@
-if(u.charAt(0)==="."||(u.charAt(0)!=="/"&&!/^[a-z][a-z0-9+.-]*:/i.test(u))){try{var r=new URL(u,"http://nwg/"+String(B||"").replace(/^\/+/,""));if(r.pathname.indexOf("/api/p/")===0)return r.pathname+r.search+r.hash;return P+r.pathname+r.search+r.hash;}catch(e){return u;}}

@@ -74,7 +74,7 @@ type Proxy struct {
 	tr     *http.Transport // WS 升级要用同一套 Transport
 }
 
-// 绿联桌面给第三方应用套的链接包装前缀，见 ServeHTTP 里的入口剥离。
+// 绿联桌面给第三方应用套的那层链接包装前缀，见下方 404 兜底的说明。
 const redirectWrapper = "ugreen/v1/desktop/redirect/"
 
 var hopHeaders = []string{
@@ -93,8 +93,7 @@ func NewProxy(jar *CookieJar, insecure bool) *Proxy {
 		MaxIdleConnsPerHost:   32,
 		IdleConnTimeout:       90 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
-		// 只管“等响应头”，不等 body：视频、固件下载、SSE 都是头先到、body 慢慢流，
-		// 所以这里不会把它们掐断。没有它，上游“TCP 通了但不回包”会一直白屏。
+		// 只管“等响应头”，不等 body（视频/下载/SSE 都是头先到）
 		ResponseHeaderTimeout: 30 * time.Second,
 		DisableCompression:    true, // 自己控制压缩，才能改写 HTML
 		ForceAttemptHTTP2:     false,
@@ -168,17 +167,13 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 前缀去重：飞牛登录会把 redirect_uri 原样跳回来，而它当初记下的就是带前缀的
 	// 地址，于是出现 /api/p/<seg>/api/p/<seg>/xxx，上游必然 404（表现为登录后
 	// 落到“这里暂时没有装入页面”）。这里把重复的、且指向同一上游的前缀剥掉。
-	// 只认“合法编码的上游地址”，不看它是否和当前上游相同：/api/p/ 前缀是本网关
-	// 自己生成的，上游应用不可能自己吐这条路径；一旦出现第二层，只可能是注入脚本
-	// 或应用在已带前缀的地址上又补了一次（曾经出现过 .../8000/api/p/127.0.0.1:443/，
-	// 上游直接 404 → 白屏）。相同上游的剥法不变，不同上游的也剥，保留最外层。
 	for strings.HasPrefix(rest, "api/p/") {
 		inner := strings.TrimPrefix(rest, "api/p/")
 		nxt, after := inner, ""
 		if i := strings.Index(inner, "/"); i >= 0 {
 			nxt, after = inner[:i], inner[i+1:]
 		}
-		if _, e2 := decodeOrigin(nxt); e2 == nil {
+		if o2, e2 := decodeOrigin(nxt); e2 == nil && o2 == origin {
 			rest = after
 			continue
 		}
@@ -199,9 +194,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 绿联桌面给第三方应用套的链接包装段 /ugreen/v1/desktop/redirect?url=<应用地址>。
-	// 应用自己的 JS 按 location.pathname 拼接口，包装段就顺着漏进请求路径
-	// （.../redirect/api/xxx、.../redirect/api/webterminal/connect/xxx），上游应用
-	// 根本没有这层路由。在入口统一剥一次，HTTP 与 WebSocket 都不再各自兜底。
+	// 应用自己的 JS 会按 location.pathname 拼接口，包装段就顺着漏进请求路径
+	// （.../redirect/api/xxx 或 .../redirect/api/webterminal/connect/xxx），而上游应用
+	// 根本没有这层路由。这里在入口统一剥掉一次，HTTP 与 WebSocket 都不再各自兜底。
 	if strings.HasPrefix(rest, redirectWrapper) {
 		rest = strings.TrimPrefix(strings.TrimPrefix(rest, redirectWrapper), "/")
 		if !isAssetPath(rest) {
@@ -283,11 +278,11 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		// 502 页面只写给浏览器，日志里必须留一行，否则事后分不清“没响应”和“连不上”。
 		log.Printf("[nwg] !! upstream %s%s: %v", host, rest, err)
 		writeProxyError(w, prefix, err)
 		return
 	}
+
 	defer resp.Body.Close()
 
 	p.jar.Set(host, resp.Header.Values("Set-Cookie"))
@@ -362,10 +357,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			log.Printf("[nwg] dbg %s%s hdr=%v body=%s", host, rest, dbgHeaders(r), prev)
 		}
-		// 0155：JSON 一律原样透传，不再把里面的绝对地址改写成代理前缀。
-		// 理由：JSON 里的地址多半是业务数据（如 Lucky 的默认规则目标），改了既污染
-		// 界面显示，又会在保存回填时把配置写坏。需要“点了能打开”的地址，交给页面里的
-		// 运行时拦截（/api/inject.js）在调用那一刻改写。
+		body = rewriteLanURLs(body, marker)
 		w.Header().Del("Content-Encoding")
 		w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 		w.WriteHeader(resp.StatusCode)
@@ -533,9 +525,7 @@ func decodeOrigin(seg string) (string, error) {
 	if !strings.Contains(s, "://") || len(s) > 512 {
 		return "", errBadTarget
 	}
-	// 指向 NAS 自己的局域网地址统一收敛到 127.0.0.1，避免同一上游出现两个前缀、
-	// 两套会话 cookie（表现为登录成功后又退回登录页）。
-	return canonOrigin(s), nil
+	return s, nil
 }
 
 func isWebSocket(r *http.Request) bool {

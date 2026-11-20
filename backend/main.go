@@ -33,9 +33,6 @@ func main() {
 	insecure := flag.Bool("insecure", true, "skip TLS verification for LAN devices with self-signed certs")
 	flag.Parse()
 
-	// 记录本机所有 IP，供 canonOrigin 把“指向 NAS 自己的局域网地址”收敛成 127.0.0.1。
-	initLocalIPs()
-
 	// UGOS 把进程 CWD 设成 appdata 目录，所以所有路径都必须从环境变量推导成绝对路径。
 	// 注意：unit 里有 TemporaryFileSystem=/:ro，只有 data/cache/log/shared 被 BindPaths
 	// 放行，所以数据只能落在 UGAPP_DATA_DIR 之内，不能自选 /volume1 其他目录。
@@ -161,7 +158,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"ok":true}`))
 }
 
-// lanIP 返回本机第一个私网 IPv4（跳过回环和容器网桥）。客户端拿它拼局域网地址：
+// lanIP 返回本机第一个私网 IPv4（跳过回环）。客户端拿它拼局域网地址：
 // 绿联桌面里点应用给的是包装地址，里面常带 ugapp.link:端口 或 127.0.0.1:端口，
 // 而 127.0.0.1 在手机/别的机器上指的是它自己。
 func lanIP() string {
