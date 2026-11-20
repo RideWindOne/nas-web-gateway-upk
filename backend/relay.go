@@ -84,7 +84,7 @@ func (p *Proxy) RelayHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Cookie 统一由服务端的 jar 维持：SW 拿到的 Set-Cookie 无法回写浏览器，
 	// 交给浏览器只会污染整个网关域，多应用之间会互相顶掉登录态。
-	if ck := p.jar.Get(u.Host); ck != "" {
+	if ck := p.jar.Get(cookieKey(u.Host)); ck != "" {
 		req.Header.Set("Cookie", ck)
 	}
 
@@ -97,7 +97,7 @@ func (p *Proxy) RelayHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	p.jar.Set(u.Host, resp.Header.Values("Set-Cookie"))
+	p.jar.Set(cookieKey(u.Host), resp.Header.Values("Set-Cookie"))
 
 	copyHeader(w.Header(), resp.Header)
 	for _, h := range hopHeaders {

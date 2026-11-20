@@ -173,7 +173,11 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if i := strings.Index(inner, "/"); i >= 0 {
 			nxt, after = inner[:i], inner[i+1:]
 		}
-		if o2, e2 := decodeOrigin(nxt); e2 == nil && o2 == origin {
+		// 只认“能解开的上游地址”，不看它是否与当前上游相同：/api/p/ 是网关自己
+		// 生成的前缀，上游应用不可能自己吐这条路径；一旦出现第二层，只可能是注入
+		// 脚本或应用在“已带前缀的地址”上又补了一次（曾出现 .../8000/api/p/<seg>/…，
+		// 上游直接 404 → 白屏）。相同上游的剥法不变，不同上游的也剥，保留最外层。
+		if _, e2 := decodeOrigin(nxt); e2 == nil {
 			rest = after
 			continue
 		}
@@ -272,7 +276,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	req.Host = host
 	fixForwardSiteHeaders(req, u, host)
 
-	if ck := p.jar.Get(host); ck != "" {
+	if ck := p.jar.Get(cookieKey(host)); ck != "" {
 		req.Header.Set("Cookie", ck)
 	}
 
@@ -285,7 +289,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	defer resp.Body.Close()
 
-	p.jar.Set(host, resp.Header.Values("Set-Cookie"))
+	p.jar.Set(cookieKey(host), resp.Header.Values("Set-Cookie"))
 
 	copyHeader(w.Header(), resp.Header)
 	for _, h := range hopHeaders {
@@ -484,7 +488,7 @@ func (p *Proxy) fetchRootHTML(r *http.Request, origin, host string) ([]byte, boo
 	if ou, errU := url.Parse(origin); errU == nil {
 		fixForwardSiteHeaders(req, ou, host)
 	}
-	if ck := p.jar.Get(host); ck != "" {
+	if ck := p.jar.Get(cookieKey(host)); ck != "" {
 		req.Header.Set("Cookie", ck)
 	}
 
@@ -496,7 +500,7 @@ func (p *Proxy) fetchRootHTML(r *http.Request, origin, host string) ([]byte, boo
 	if !isHTMLContentType(resp.Header.Get("Content-Type")) {
 		return nil, false
 	}
-	p.jar.Set(host, resp.Header.Values("Set-Cookie"))
+	p.jar.Set(cookieKey(host), resp.Header.Values("Set-Cookie"))
 
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
 	raw = gunzipBytes(raw, resp.Header.Get("Content-Encoding"))
@@ -560,7 +564,7 @@ func (p *Proxy) serveWS(w http.ResponseWriter, r *http.Request, target, host str
 			req.Header.Del("Ugreen-App-Proxy-Type")
 			req.Header.Del("X-Nwg-Force-UA")
 			applyUA(req.Header, forceDesk || uaModeFromHeader(origCookie))
-			if ck := p.jar.Get(host); ck != "" {
+			if ck := p.jar.Get(cookieKey(host)); ck != "" {
 				req.Header.Set("Cookie", ck)
 			}
 		},
