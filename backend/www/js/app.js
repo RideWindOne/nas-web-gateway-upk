@@ -1603,6 +1603,18 @@
     if (!menu.contains(e.target) && !menuBtn.contains(e.target)) setMenu(false);
   });
 
+  // 开了鉴权（NWG_AUTH=on）才显示「退出登录」；免登录部署时这项没有意义。
+  (function () {
+    var btn = document.getElementById('menuLogout');
+    if (!btn) return;
+    try {
+      fetch(__B + '/api/info', { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { if (d && d.auth) btn.classList.remove('hidden'); })
+        .catch(function () {});
+    } catch (e) { /* 忽略 */ }
+  })();
+
   menu.addEventListener('click', function (e) {
     var btn = e.target.closest('button[data-act]');
     if (!btn) return;
@@ -1649,6 +1661,9 @@
       applyLayout();
     } else if (act === 'clearCache') {
       clearCacheAndReload();
+    } else if (act === 'logout') {
+      // 走服务端 /logout：清会话 cookie 后 302 到登录页，比前端清 localStorage 干净。
+      location.href = __B + '/logout';
     } else if (act === 'closeAll') {
       panesEl.innerHTML = '';
       activePane = null;

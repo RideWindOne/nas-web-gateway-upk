@@ -151,7 +151,7 @@ func main() {
 	mux.HandleFunc("/api/history", store.HistoryHandler())
 	mux.HandleFunc("/api/fav", store.FavHandler())
 	mux.HandleFunc("/api/apps", store.AppsHandler())
-	mux.HandleFunc("/api/info", infoHandler)
+	mux.HandleFunc("/api/info", infoHandler(*auth))
 	mux.HandleFunc("/api/health", healthHandler)
 	// 被代理页面的注入脚本走外部 URL：页面里只有一个 <script src>，
 	// 不会有内联源码被页面模板当成正文渲染出来。
@@ -264,7 +264,10 @@ func lanIP() string {
 	return ""
 }
 
-func infoHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	fmt.Fprintf(w, `{"ok":true,"host":%q,"prefix":%q,"lanip":%q}`, r.Host, "/gw", lanIP())
+// infoHandler 带鉴权开关：前端据此决定是否显示「退出登录」。
+func infoHandler(authOn bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		fmt.Fprintf(w, `{"ok":true,"host":%q,"prefix":%q,"lanip":%q,"auth":%t}`, r.Host, "/gw", lanIP(), authOn)
+	}
 }
