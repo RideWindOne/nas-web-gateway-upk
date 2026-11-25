@@ -1047,3 +1047,9 @@ body.rot .menu { touch-action: pan-x; }
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 body.rot .toast { transform: rotate(90deg) translateY(-50%); left: 84px; bottom: 50%; }
+
+/* 表单里「缩放比例」的单位 */
+.zoom-unit{
+  display:flex;align-items:center;justify-content:center;
+  min-width:34px;height:38px;color:#8b93a7;font-size:14px;
+}

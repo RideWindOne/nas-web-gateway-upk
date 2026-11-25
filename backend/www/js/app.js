@@ -61,6 +61,7 @@
   var appScheme = document.getElementById('appScheme');
   var appProxy = document.getElementById('appProxy');
   var appDesktop = document.getElementById('appDesktop');
+  var appZoomInput = document.getElementById('appZoom');
   var colorsEl = document.getElementById('colors');
 
   var layout = localStorage.getItem('nwg.layout') === 'split' ? 'split' : 'single';
@@ -142,11 +143,39 @@
     var n = normalize(raw);
     if (!n) return false;
     var a = appFor(n);
-    if (a && a.desktop) return true;
+    if (a && (a.ua ? a.ua === 'desktop' : !!a.desktop)) return true;
     try {
       if (localStorage.getItem(deskPrefKey(n)) === '1') return true;
     } catch (e) { /* 忽略 */ }
     return false;
+  }
+
+  // 缩放同样按站点记：同一台 NAS 的不同端口是不同服务，一个全局倍率
+  // 会让用户每换一个页面都得重新调。应用里填的比例优先，其次取上次手调的值。
+  function zoomPrefKey(n) {
+    return 'nwg.zoom.' + originOf(bare(n));
+  }
+
+  function clampZoom(z) {
+    return Math.round(Math.max(0.3, Math.min(2.2, z)) * 100) / 100;
+  }
+
+  function rememberZoom(n, z) {
+    try {
+      if (!n) return;
+      z = Number(z);
+      if (!isFinite(z) || z <= 0) return;
+      if (Math.abs(z - 1) < 0.001) localStorage.removeItem(zoomPrefKey(n));
+      else localStorage.setItem(zoomPrefKey(n), String(z));
+    } catch (e) { /* 隐私模式下忽略 */ }
+  }
+
+  function zoomFor(raw, app) {
+    // 顺序：这个站点上次手调过的比例 > 应用里配置的默认比例 > 100%
+    var z = 0;
+    try { z = Number(localStorage.getItem(zoomPrefKey(raw))) || 0; } catch (e) { z = 0; }
+    if (!(z > 0) && app) z = Number(app.zoom) || 0;
+    return clampZoom(z > 0 ? z : 1);
   }
 
   // UGREENlink 的远程域名（app-xxxx.ugapp.link:端口）在绿联云桌面里常被当成
@@ -712,7 +741,7 @@
     vDot.style.setProperty('--vs', size + 'px');
   }
 
-  function applyZoom(pane, z) {
+  function applyZoom(pane, z, persist) {
     if (!pane) return;
     var f = pane.querySelector('.pane-frame');
     if (!f) return;
@@ -724,7 +753,9 @@
     f.style.flex = '0 0 auto';
     f.style.width = (100 / z) + '%';
     f.style.height = (100 / z) + '%';
-    try { localStorage.setItem('nwg-zoom', String(z)); } catch (e) {}
+    // 只有用户手调才写回站点记忆（persist !== false）；装载应用时按应用配置来，
+    // 否则「编辑应用改了比例」会被旧的手调值一直压住。
+    if (persist !== false) rememberZoom(pane.dataset.url, z);
     if (pane === activePane) { layoutVLayer(); syncZoomUI(); }
   }
 
@@ -920,6 +951,7 @@
     if (!url) return null;
 
     // 没显式指定时按地址去反查应用配置，这样历史/地址栏打开也继承「访问电脑版」
+    var zoom = opts.zoom === undefined ? zoomFor(url) : clampZoom(Number(opts.zoom) || 1);
     var desktop = opts.desktop === undefined ? desktopFor(url) : !!opts.desktop;
     if (opts.desktop !== undefined) rememberDesk(url, desktop);
     var proxy = opts.proxy === undefined
@@ -1049,8 +1081,8 @@
 
     pane.appendChild(frame);
     panesEl.appendChild(pane);
-    pane.dataset.zoom = localStorage.getItem('nwg-zoom') || '1';
-    applyZoom(pane, paneZoom(pane));
+    pane.dataset.zoom = String(zoom);
+    applyZoom(pane, paneZoom(pane), false);
 
     // 代理内容与主页面同源，标题一般可读；直连时读不到就保留名称
     // 父页面在 iframe 上再加一层 window.open 拦截：代理内容与本页面同源，
@@ -1161,7 +1193,7 @@
     var url = normalize(raw);
     if (!url) return;
     var app = appFor(url);
-    var pane = addPane(url, app ? { proxy: app.proxy !== false, name: app.name, desktop: !!app.desktop } : {});
+    var pane = addPane(url, app ? { proxy: app.proxy !== false, name: app.name, desktop: !!app.desktop, zoom: app.zoom } : {});
     if (pane) activate(pane);
     urlInput.blur();
   }
@@ -1275,7 +1307,7 @@
       card.appendChild(note);
 
       card.addEventListener('click', function () {
-        addPane(app.url, { proxy: app.proxy !== false, name: app.name, desktop: !!app.desktop });
+        addPane(app.url, { proxy: app.proxy !== false, name: app.name, desktop: !!app.desktop, zoom: app.zoom });
       });
 
       appsEl.appendChild(card);
@@ -1316,7 +1348,15 @@
     appName.value = app ? app.name : '';
     appNote.value = app ? (app.note || '') : '';
     appProxy.checked = app ? app.proxy !== false : true;
-    if (appDesktop) appDesktop.checked = !!(app && app.desktop);
+    if (appDesktop) {
+      appDesktop.checked = app
+        ? (app.ua ? app.ua === 'desktop' : !!app.desktop)
+        : desktopUA;   // 新建时默认跟随当前「访问电脑版」状态
+    }
+    if (appZoomInput) {
+      var z0 = (app && Number(app.zoom) > 0) ? Number(app.zoom) : (activePane ? paneZoom(activePane) : 1);
+      appZoomInput.value = String(Math.round(clampZoom(z0) * 100));
+    }
     editColor = (app && app.color) || PALETTE[1];
 
     var url = app ? app.url : '';
@@ -1344,6 +1384,9 @@
     if (!addr) return null;
     var url = appScheme.value + addr;
     var name = appName.value.trim() || hostOf(url);
+    var desk = !!(appDesktop && appDesktop.checked);
+    var zv = Number(appZoomInput ? appZoomInput.value : 100);
+    if (!(zv > 0)) zv = 100;
     return {
       id: editing ? editing.id : '',
       name: name,
@@ -1351,7 +1394,10 @@
       note: appNote.value.trim(),
       color: editColor,
       proxy: appProxy.checked,
-      desktop: !!(appDesktop && appDesktop.checked)
+      desktop: desk,
+      // ua 显式记下这个名字对应的 UA 形态，desktop 保留给老数据/老接口
+      ua: desk ? 'desktop' : 'mobile',
+      zoom: clampZoom(zv / 100)
     };
   }
 
@@ -1368,6 +1414,8 @@
       return;
     }
     api('/api/apps', { method: 'POST', body: JSON.stringify(item) }).then(function () {
+      // 在这里把站点记忆对齐到刚保存的值，用户改完比例马上生效，不用清缓存
+      rememberZoom(item.url, item.zoom);
       closeSheet();
       loadApps();
     });
@@ -1829,7 +1877,9 @@
         note: '',
         color: PALETTE[1],
         proxy: true,
-        desktop: !!(activePane && activePane.dataset.desktop === '1')
+        desktop: !!(activePane && activePane.dataset.desktop === '1'),
+        ua: (activePane && activePane.dataset.desktop === '1') ? 'desktop' : 'mobile',
+        zoom: activePane ? paneZoom(activePane) : 1
       })
     }).then(loadApps);
   }

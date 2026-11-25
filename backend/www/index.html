@@ -285,10 +285,18 @@
     </label>
     <p class="hint">打开这个应用时按电脑浏览器（Windows Chrome）的 UA 请求，绿联云桌面、部分后台会按电脑版渲染；只对这一个应用生效。</p>
 
+    <p class="sheet-label">缩放比例</p>
+    <div class="addr-row">
+      <input id="appZoom" class="sheet-input grow" type="number" min="30" max="220" step="5"
+             inputmode="numeric" value="100">
+      <span class="zoom-unit">%</span>
+    </div>
+    <p class="hint">打开这个应用时按此比例渲染（30%–220%）。手动调缩放也会按站点记下来，下次打开沿用。</p>
+
     <button type="button" id="sheetOk" class="sheet-primary">确定</button>
   </div>
 </div>
 
-<script src="/js/app.js?v=0184"></script>
+<script src="/js/app.js?v=0185"></script>
 </body>
 </html>

@@ -33,7 +33,12 @@ type AppItem struct {
 	Color string `json:"color"`
 	Proxy   bool   `json:"proxy"`
 	Desktop bool   `json:"desktop"`
-	TS    int64  `json:"ts"`
+	// UA 显式记下打开这个应用时用的是哪套 UA（mobile / desktop）；
+	// Desktop 保留给老数据与老接口，前端优先读 UA。
+	UA   string  `json:"ua,omitempty"`
+	// Zoom 是这个应用默认的缩放比例（1 = 100%，0 表示没设过）。
+	Zoom float64 `json:"zoom,omitempty"`
+	TS   int64   `json:"ts"`
 }
 
 type Store struct {
@@ -233,6 +238,12 @@ func (s *Store) AppsHandler() http.HandlerFunc {
 			}
 			if in.Color == "" {
 				in.Color = "#5b8def"
+			}
+			if in.UA != "desktop" {
+				in.UA = "mobile"
+			}
+			if in.Zoom < 0.3 || in.Zoom > 2.2 {
+				in.Zoom = 0
 			}
 			in.TS = time.Now().Unix()
 
