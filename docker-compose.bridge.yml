@@ -1,0 +1,35 @@
+services:
+  naswebgateway:
+    image: ridewindone/naswebgateway:latest
+    container_name: naswebgateway
+    restart: unless-stopped
+    # 复用宿主自带的 docker0 bridge，用 network_mode 而不是 networks:
+    # 这样 compose 不会往里塞 network-scoped alias（内置 bridge 不支持别名，
+    # 会报 "network-scoped aliases are only supported for user-defined networks"）。
+    network_mode: bridge
+    ports:
+      - "18092:18092"
+    environment:
+      # 容器内监听端口，必须和上面 ports 右侧一致
+      NWG_HTTP_PORT: "18092"
+      # on：首启访问 /setup 设管理员密码；off：免登录（仅限完全内网）
+      NWG_AUTH: "on"
+      # 内网设备多为自签证书，默认跳过校验
+      NWG_INSECURE: "on"
+      # 挂在其它应用门户下时才需要，填 /app/naswebgateway 这类前缀
+      NWG_BASE: ""
+    volumes:
+      - ./data:/data
+
+# 启动：
+#   docker compose -f docker-compose.bridge.yml up -d
+# 首启：
+#   http://<NAS-IP>:18092/setup
+#
+# 说明：内置 bridge 没有内嵌 DNS，容器之间不能按名字互访，只能走端口/IP。
+# 如果后续要让别的容器按名字连进来（如 nginx 反代 → naswebgateway），
+# 那就别用内置 bridge，改成 `docker network create nwg-net` 后在
+# networks 里引用 external: true / name: nwg-net，或用 host 模式。
+#
+# 只换对外端口：把 ports 改成 "18099:18092" 即可，NWG_HTTP_PORT 保持 18092。
+# 同机跑第二份：换 container_name、换 ports（如 "18093:18092"）、换卷目录（./data2:/data）。

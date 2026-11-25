@@ -81,6 +81,11 @@ func (p *Proxy) RelayHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Header.Set("Accept-Encoding", "identity")
 	req.Host = u.Host
+	// 同 proxy2：把 Origin/Referer 换回上游自己的站点，否则上游的同源校验
+	// 会把 SW 转发过来的每个请求判成跨源（登录接口尤其）。
+	fixForwardSiteHeaders(req, u, u.Host)
+	req.Header.Set("X-Forwarded-Host", u.Host)
+	req.Header.Set("X-Forwarded-Proto", u.Scheme)
 
 	// Cookie 统一由服务端的 jar 维持：SW 拿到的 Set-Cookie 无法回写浏览器，
 	// 交给浏览器只会污染整个网关域，多应用之间会互相顶掉登录态。

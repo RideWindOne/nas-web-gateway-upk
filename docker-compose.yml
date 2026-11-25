@@ -1,0 +1,36 @@
+services:
+  naswebgateway:
+    image: ridewindone/naswebgateway:latest
+    container_name: naswebgateway
+    restart: unless-stopped
+    # host 网络：容器直接占宿主端口，NAS 反代/门户/极空间代理模式转发过来即可。
+    # 换成 bridge 网络时把下面 network_mode 删掉、改用 ports 映射（见文末注释）。
+    network_mode: host
+    environment:
+      # 唯一对外端口，明文 HTTP；TLS 交给 NAS 侧反代
+      NWG_HTTP_PORT: "18092"
+      # on：首启访问 /setup 设管理员密码；off：免登录（仅限完全内网自己用）
+      NWG_AUTH: "on"
+      # 内网设备多为自签证书，默认跳过校验；要严格校验可设 off
+      NWG_INSECURE: "on"
+      # 挂在其它应用的门户下（如飞牛 fnOS 网关）时才需要，填 /app/naswebgateway 这类前缀
+      NWG_BASE: ""
+    volumes:
+      # 账号、应用卡片、历史、站点 cookie 全部落这里，删容器不丢数据
+      - ./data:/data
+
+# 若必须用 bridge 网络（比如同一台机器要跑多个实例），把上面 network_mode 一行删掉，改为：
+#
+#     ports:
+#       - "18092:18092"
+#
+# 注意：桥接模式下被代理站点的 WebSocket/Host 头会跟宿主机不一致，
+# 部分 NAS 后台（绿联、飞牛）可能拒绝；能用 host 网络就优先用 host。
+#
+# 启动：
+#   docker compose up -d
+# 首启：
+#   浏览器打开 http://<NAS-IP>:18092/setup 设置账号密码
+#
+# 多实例（同一台机器跑第二份）：
+#   改 NWG_HTTP_PORT（如 18093）+ 换一个数据卷目录（如 ./data2:/data）

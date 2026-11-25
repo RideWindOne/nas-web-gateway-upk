@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>加载中</title>
+<style>
+  html,body{height:100%;margin:0;background:#0f1115;color:#8b93a1;
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;}
+  .box{height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px}
+  .dot{width:22px;height:22px;border:2px solid #2a2f3a;border-top-color:#3b82f6;border-radius:50%;
+    animation:sp 0.9s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="box"><div class="dot"></div><div>正在接管该站点…</div></div>
+<script>
+// 引导页。为什么需要它：
+// 被代理的站点（飞牛 fnOS 这类 SPA）会用 location.pathname 做前端路由。如果它的
+// 第一帧就停在 /api/p/<seg>/ 这种带前缀的地址上，路由一条都匹配不上，页面会直接
+// 渲染自己的 404。而“把带前缀地址换成干净地址”这件事只有在 Service Worker 已经
+// 控制当前标签时才成立——第一帧恰恰不满足这个条件，于是死循环。
+//
+// 所以第一帧先落在本应用自己的引导页（同源、由后端直接发，永远 200），在这里等
+// SW 接管、把上游 seg 绑定好，再整页跳到干净的 "/"。这样被代理的站点从第一帧起
+// 看到的就是干净路径，前端路由正常；资源请求则由 SW 前缀转回上游。
+(function () {
+  var seg = '';
+  var path = '/';
+  try {
+    var q = new URLSearchParams(location.search);
+    seg = q.get('seg') || '';
+    path = q.get('path') || '/';
+  } catch (e) { seg = ''; }
+  if (!path || path.charAt(0) !== '/') path = '/' + (path || '');
+  var P = seg ? '/api/p/' + seg + '/' : '';
+
+  function gotoPrefix() {
+    // SW 不可用时的退路：退回带前缀的旧行为（传统后台仍然能用，SPA 会退化）
+    location.replace(P || '/');
+  }
+
+  if (!seg) { gotoPrefix(); return; }
+  // 先把"当前上游"落到网关自己的 nwg_up cookie 上：被代理页第一帧就发出去的
+  // 绝对路径请求（飞牛 /license/v1/device/baseInfo 这类）如果比 SW 绑定更早到，
+  // 后端就是靠这个 cookie 把它们转回上游的。缺了它，页面会先渲染一次
+  // “连接已断开”，用户手点刷新、cookie 到位后才有内容。
+  try {
+    document.cookie = 'nwg_up=' + seg + '; Path=/; Max-Age=1800; SameSite=Lax';
+  } catch (e) { /* 忽略 */ }
+  if (!('serviceWorker' in navigator)) { gotoPrefix(); return; }
+  // 非安全上下文（http 访问、或经反代以 http 暴露）SW 根本注册不了，
+  // serviceWorker.ready 会一直 pending，页面就永远停在「正在接管该站点」。
+  var secure = (window.isSecureContext === true) ||
+    location.protocol === 'https:' ||
+    location.hostname === 'localhost' || location.hostname === '127.0.0.1' ||
+    location.hostname === '::1';
+  if (!secure) { gotoPrefix(); return; }
+
+  function enter() {
+    try {
+      var c = navigator.serviceWorker.controller;
+      if (c) c.postMessage({ __nwg: 'bind', prefix: P });
+    } catch (e) { /* 忽略 */ }
+    // 把 seg 直接带在 URL 上：SW 解析到 ?__nwg=<seg> 就会转发，
+    // 不依赖"先 postMessage 再导航"的先后顺序。
+    // path 也必须带上：飞牛桌面点“相册”打开的是 /p，只跳 "/" 就变成桌面自己了。
+    // __nwg 必须插在 # 之前：hash 路由应用（ws-scrcpy 的 #!action=stream&udid=…）
+    // 直接把查询串拼在末尾会拼进 fragment 里，SW 收不到 seg，页面还会丢路由。
+    var q = '';
+    var h = '';
+    var pth = path;
+    var hi = path.indexOf('#');
+    if (hi >= 0) { h = path.slice(hi); pth = path.slice(0, hi); }
+    try {
+      var pu = new URL(pth, location.origin);
+      q = pu.search;
+      pth = pu.pathname;
+      if (!pth) pth = '/';
+    } catch (e) { /* 保持原样 */ }
+    location.replace(pth + q + (q ? '&' : '?') + '__nwg=' + encodeURIComponent(seg) + h);
+  }
+
+  // 硬兜底：ready 有可能既不 resolve 也不 reject（注册被反代打断、scope 不匹配等），
+  // 2.5s 后无论 SW 是否接管都退回带前缀路径，保证页面一定出得来。
+  var swapped = false;
+  function done() { if (!swapped) { swapped = true; gotoPrefix(); } }
+  setTimeout(done, 2500);
+  navigator.serviceWorker.ready.then(function () {
+    if (navigator.serviceWorker.controller) { enter(); return; }
+    // 还没接管：等 controllerchange；同时留一个超时退路，避免卡死
+    navigator.serviceWorker.addEventListener('controllerchange', enter);
+    setTimeout(function () {
+      if (!navigator.serviceWorker.controller) gotoPrefix();
+    }, 2500);
+  }).catch(function () { gotoPrefix(); });
+})();
+</script>
+</body>
+</html>

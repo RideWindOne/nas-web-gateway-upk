@@ -116,7 +116,7 @@ func rewriteHTML(body []byte, prefix, baseDir, origin string, desktop bool) []by
 	// 头部内容当文本渲染的模板）会被当成正文显示出来，页面上就会冒出一大段代码。
 	// 现在页面里只有一个 src，脚本体由 /api/inject.js 单独下发。
 	inj := []byte(`<base href="` + baseHref + `">` +
-		`<script src="/api/inject.js?p=` + url.QueryEscape(prefix) + `&ua=` + uaMode +
+		`<script src="` + withBase("/api/inject.js") + `?p=` + url.QueryEscape(prefix) + `&ua=` + uaMode +
 		`&o=` + url.QueryEscape(origin) + `&d=` + url.QueryEscape(baseDir) + `"></script>`)
 	// 先清洗上游正文里的前缀字面量，再插注入脚本：注入脚本自己的 src/base
 	// 里本来就带着前缀，顺序反了会把它们也抹成 "/"，整页资源全 404。

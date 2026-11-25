@@ -68,6 +68,41 @@ func uaModeFromHeader(h string) bool {
 	return false
 }
 
+// mergeCookie 把浏览器带上来的 Cookie 与服务端 jar 里的 cookie 合并后再发给上游。
+//
+// 为什么必须合并：有些上游的登录发生在网关根路径（不在代理路径下），那份会话 cookie
+// 只落在浏览器里、jar 里没有；如果只发 jar，代理路径下的请求就被上游判定为未登录，
+// 表现为"登录成功后又跳回登录页"（飞牛 fnOS 桌面即此）。同名 cookie 以 jar 为准：
+// jar 是按应用分桶的，里面的值才是这个上游最近一次会话。
+func mergeCookie(clientCookie, jarCookie string) string {
+	if clientCookie == "" {
+		return jarCookie
+	}
+	if jarCookie == "" {
+		return clientCookie
+	}
+	jarNames := make(map[string]bool, 16)
+	for _, part := range strings.Split(jarCookie, ";") {
+		kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
+		if len(kv) == 2 {
+			jarNames[kv[0]] = true
+		}
+	}
+	kept := make([]string, 0, 16)
+	for _, part := range strings.Split(clientCookie, ";") {
+		p := strings.TrimSpace(part)
+		kv := strings.SplitN(p, "=", 2)
+		if len(kv) != 2 || p == "" || jarNames[kv[0]] {
+			continue
+		}
+		kept = append(kept, p)
+	}
+	if len(kept) == 0 {
+		return jarCookie
+	}
+	return jarCookie + "; " + strings.Join(kept, "; ")
+}
+
 type Proxy struct {
 	jar    *CookieJar
 	client *http.Client
@@ -189,7 +224,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// → 注入脚本没加载 → 页面里所有根绝对路径都不补前缀 → 应用直接白屏。
 	// 这类路径永远属于网关自身，直接踢回本机地址。
 	if rest == "api/inject.js" || rest == "sw.js" || rest == "boot.html" {
-		target := "/" + rest
+		target := withBase("/" + rest)
 		if r.URL.RawQuery != "" {
 			target += "?" + r.URL.RawQuery
 		}
@@ -214,6 +249,32 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r.Header.Set("X-Nwg-Force-UA", "desktop")
 	}
 
+	// 自代理护栏：目标就是本应用自己时直接拒绝。
+	// 飞牛把本应用挂在 /app/naswebgateway 下，一旦有人在「网页应用」里把本应用
+	// 自己加了进来（或历史/会话里存了这条），代理进去的页面又会恢复上一层的标签，
+	// 一层套一层无限嵌套，只能清浏览器数据才解得开。这里在入口断掉。
+	if ou, e := url.Parse(origin); e == nil {
+		upHost, upPort := hostPort(ou.Host, ou.Scheme)
+		reqHost, reqPort := hostPort(r.Host, reqScheme(r))
+		appRoot := strings.Trim(strings.TrimPrefix(uiBase, "/"), "/") // "app/naswebgateway" 或 ""
+		// 主机和端口都要相同才算「自己」：面板上「打开本机管理界面」的地址与本应用
+		// 同主机不同端口（绿联 9999、飞牛 5666），只比主机名会误伤正常用法。
+		if upHost != "" && upHost == reqHost && upPort == reqPort &&
+			strings.Trim(strings.TrimSuffix(rest, "/"), "/") == appRoot {
+			root := uiBase
+			if root == "" {
+				root = "/"
+			}
+			if !strings.HasSuffix(root, "/") {
+				root += "/"
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-store")
+			io.WriteString(w, strings.ReplaceAll(selfProxyPage, "{{root}}", root))
+			return
+		}
+	}
+
 	target := origin + "/"
 	if rest != "" {
 		target = origin + "/" + rest
@@ -225,7 +286,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		target += "?" + q
 	}
 
-	prefix := marker + seg
+	prefix := withBase(marker) + seg
 
 	// 文档所在目录，供 <base href> 使用（见 rewriteHTML 里的说明）。
 	baseDir := "/"
@@ -276,7 +337,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	req.Host = host
 	fixForwardSiteHeaders(req, u, host)
 
-	if ck := p.jar.Get(cookieKey(host)); ck != "" {
+	if ck := mergeCookie(r.Header.Get("Cookie"), p.jar.Get(cookieKey(host))); ck != "" {
 		req.Header.Set("Cookie", ck)
 	}
 
@@ -330,7 +391,19 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		body = rewriteHTML(body, prefix, baseDir, origin, uaMode(r))
+		// Service Worker 接管后（干净路径模式），SW 转发时会带上 X-NWG-Pass。
+		// 这时页面自己的地址就是上游地址（/assets、/login 都不带前缀），
+		// 再塞 <base href="/api/p/<seg>/"> 会把 SPA 的路由基准带偏 ——
+		// 飞牛这类前端路由会觉得当前路径不认识，直接渲染自己的「404 未装入页面」。
+		// 所以干净模式下 HTML 原样下发，所有请求由 SW 按绑定关系转发。
+		if r.Header.Get("X-NWG-Pass") == "" {
+			body = rewriteHTML(body, prefix, baseDir, origin, uaMode(r))
+		} else {
+			// 干净模式只盖一个标记：告诉被代理页面「你是被嵌在一个网关代理页里」。
+			// 前端凭 window.__NWG_SHELL__ / parent.__NWG_SHELL__ 判定套娃层，
+			// 不再恢复会话，从根上断掉「代理桌面 → 里面又开本应用 → 再代理同一个桌面」的循环。
+			body = markShell(body)
+		}
 		w.Header().Del("Content-Encoding")
 
 		if clientAcceptsGzip(r) && len(body) > 512 {
@@ -450,12 +523,15 @@ func fixForwardSiteHeaders(req *http.Request, upstream *url.URL, host string) {
 	}
 	if ref := req.Header.Get("Referer"); ref != "" {
 		if ru, err := url.Parse(ref); err == nil && !strings.EqualFold(ru.Host, host) {
-			p := ru.EscapedPath()
-			if p == "" {
-				p = "/"
+			// 必须先把我们加的代理前缀剥掉：飞牛/绿联这类面板会把 Referer 里的
+			// 路径当成自己的页面路径，原样拼进 redirect_uri，登录后一跳就回到我们
+			// 自己的 /login，表现为「打开面板又跳回内网浏览器本身」。
+			p := proxyPrefixRe.ReplaceAllString(ru.EscapedPath(), "")
+			if p == "" || !strings.HasPrefix(p, "/") {
+				p = "/" + p
 			}
-			if ru.RawQuery != "" {
-				p += "?" + ru.RawQuery
+			if q := proxyPrefixRe.ReplaceAllString(ru.RawQuery, ""); q != "" {
+				p += "?" + q
 			}
 			req.Header.Set("Referer", self+p)
 		}
@@ -488,7 +564,7 @@ func (p *Proxy) fetchRootHTML(r *http.Request, origin, host string) ([]byte, boo
 	if ou, errU := url.Parse(origin); errU == nil {
 		fixForwardSiteHeaders(req, ou, host)
 	}
-	if ck := p.jar.Get(cookieKey(host)); ck != "" {
+	if ck := mergeCookie(r.Header.Get("Cookie"), p.jar.Get(cookieKey(host))); ck != "" {
 		req.Header.Set("Cookie", ck)
 	}
 
@@ -564,7 +640,7 @@ func (p *Proxy) serveWS(w http.ResponseWriter, r *http.Request, target, host str
 			req.Header.Del("Ugreen-App-Proxy-Type")
 			req.Header.Del("X-Nwg-Force-UA")
 			applyUA(req.Header, forceDesk || uaModeFromHeader(origCookie))
-			if ck := p.jar.Get(cookieKey(host)); ck != "" {
+			if ck := mergeCookie(origCookie, p.jar.Get(cookieKey(host))); ck != "" {
 				req.Header.Set("Cookie", ck)
 			}
 		},
@@ -627,4 +703,69 @@ func dbgHeaders(r *http.Request) map[string]string {
 		}
 	}
 	return out
+}
+
+// hostPort 把 "host:port" 拆成主机与端口，缺端口时按 scheme 补默认值。
+func hostPort(host, scheme string) (string, string) {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if h, p, err := net.SplitHostPort(host); err == nil {
+		return strings.Trim(h, "[]"), p
+	}
+	def := "80"
+	if strings.EqualFold(scheme, "https") {
+		def = "443"
+	}
+	return strings.Trim(host, "[]"), def
+}
+
+// reqScheme 判断浏览器访问我们时用的协议（Caddy 会带 X-Forwarded-Proto）。
+func reqScheme(r *http.Request) string {
+	if r.TLS != nil {
+		return "https"
+	}
+	if p := r.Header.Get("X-Forwarded-Proto"); p != "" {
+		if i := strings.Index(p, ","); i >= 0 {
+			p = p[:i]
+		}
+		return strings.ToLower(strings.TrimSpace(p))
+	}
+	return "http"
+}
+
+// selfProxyPage：指向本应用自己的地址不代理，直接跳到应用本体，避免一层套一层。
+const selfProxyPage = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta http-equiv="refresh" content="0;url={{root}}"><title>正在打开内网浏览器</title>
+<style>html,body{height:100%;margin:0;background:#0f1115;color:#e6e8eb;
+font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+.wrap{height:100%;display:flex;align-items:center;justify-content:center;padding:24px}
+.box{max-width:440px;background:#171a21;border:1px solid #242833;border-radius:14px;padding:22px 24px}
+h1{font-size:17px;margin:0 0 10px}
+p{color:#a9b1bf;font-size:14px;margin:0 0 8px}
+a{color:#8ab4f8}
+</style></head><body><div class="wrap"><div class="box">
+<h1>这个地址就是「内网浏览器」本身</h1>
+<p>不能再套在自己里面，已经为你切回应用本体。</p>
+<p><a href="{{root}}">如果没有自动跳转，点这里打开</a></p>
+</div></div><script>try{var T="{{root}}";
+if(window.top&&window.top!==window){window.top.location.replace(T)}else{location.replace(T)}}catch(e){location.replace(T)}</script>
+</body></html>`
+
+// markShell 在干净模式（SW 接管）下，往被代理页面的 <head> 里加一行标记。
+// 不做任何 URL 改写，只做标记，务必保持最小侵入。
+func markShell(body []byte) []byte {
+	const mark = `<script>window.__NWG_SHELL__=1;</script>`
+	low := bytes.ToLower(body)
+	if i := bytes.Index(low, []byte("<head")); i >= 0 {
+		if j := bytes.IndexByte(body[i:], '>'); j >= 0 {
+			at := i + j + 1
+			out := make([]byte, 0, len(body)+len(mark))
+			out = append(out, body[:at]...)
+			out = append(out, mark...)
+			out = append(out, body[at:]...)
+			return out
+		}
+	}
+	out := make([]byte, 0, len(body)+len(mark))
+	out = append(out, mark...)
+	return append(out, body...)
 }
